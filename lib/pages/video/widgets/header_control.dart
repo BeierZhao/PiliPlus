@@ -524,9 +524,7 @@ class HeaderControlState extends State<HeaderControl>
                     onTap: () {
                       Get.back();
                       WidgetsBinding.instance.addPostFrameCallback((_) {
-                        if (context.mounted) {
-                          BtrStatusDialog.show(context);
-                        }
+                        BtrStatusDialog.show();
                       });
                     },
                   ),

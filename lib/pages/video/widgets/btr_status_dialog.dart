@@ -2,13 +2,16 @@ import 'dart:async';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
+import 'package:get/get.dart';
 import 'package:PiliPlus/services/btr/btr_service.dart';
 import 'package:PiliPlus/services/btr/btr_stats.dart';
 
 class BtrStatusDialog {
-  static void show(BuildContext context) {
+  static void show([BuildContext? context]) {
+    final ctx = context ?? Get.context;
+    if (ctx == null) return;
     showDialog(
-      context: context,
+      context: ctx,
       barrierColor: Colors.black38,
       barrierDismissible: true,
       builder: (dialogContext) => const Dialog(
