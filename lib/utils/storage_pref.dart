@@ -281,6 +281,19 @@ abstract final class Pref {
     return CDNService.backupUrl;
   }
 
+  static bool get enableBtr =>
+      _setting.get(SettingBoxKey.enableBtr, defaultValue: false);
+
+  static String get btrMode =>
+      _setting.get(SettingBoxKey.btrMode, defaultValue: 'mainland');
+
+  static int get btrConcurrency =>
+      _setting.get(SettingBoxKey.btrConcurrency, defaultValue: 8);
+
+  static List<String> get btrCustomHosts => List<String>.from(
+        _setting.get(SettingBoxKey.btrCustomHosts, defaultValue: const <String>[]),
+      );
+
   static String get banWordForRecommend =>
       _setting.get(SettingBoxKey.banWordForRecommend, defaultValue: '');
 

@@ -10,6 +10,8 @@ import 'package:PiliPlus/pages/setting/widgets/ordered_multi_select_dialog.dart'
 import 'package:PiliPlus/pages/setting/widgets/select_dialog.dart';
 import 'package:PiliPlus/plugin/pl_player/models/audio_output_type.dart';
 import 'package:PiliPlus/plugin/pl_player/models/hwdec_type.dart';
+import 'package:PiliPlus/services/btr/btr_config.dart';
+import 'package:PiliPlus/services/btr/btr_service.dart';
 import 'package:PiliPlus/utils/filtering_text.dart';
 import 'package:PiliPlus/utils/storage.dart';
 import 'package:PiliPlus/utils/storage_key.dart';
@@ -55,11 +57,40 @@ List<SettingsModel> get videoSettings => [
       ),
     ),
   ),
+  SwitchModel(
+    title: 'BTR 多线程加速 (线程撕裂者)',
+    subtitle: '利用多 CDN 镜像与并发切片对冲加速，解决 4K/杜比/高码率及海外卡顿',
+    leading: const Icon(Icons.rocket_launch_outlined),
+    setKey: SettingBoxKey.enableBtr,
+    defaultVal: false,
+    onChanged: (value) {
+      BtrService.instance.updateConfig(enabled: value);
+    },
+  ),
+  NormalModel(
+    title: 'BTR 加速模式',
+    leading: const Icon(Icons.hub_outlined),
+    getSubtitle: () => '当前模式：${BtrMode.fromString(Pref.btrMode).label}',
+    onTap: _showBtrModeDialog,
+  ),
+  NormalModel(
+    title: 'BTR 并发线程数',
+    leading: const Icon(Icons.alt_route_rounded),
+    getSubtitle: () => Pref.btrConcurrency == 0
+        ? '当前：自动 (8~32 动态梯级)'
+        : '当前：${Pref.btrConcurrency} 线程',
+    onTap: _showBtrConcurrencyDialog,
+  ),
   NormalModel(
     title: 'CDN 设置',
     leading: const Icon(MdiIcons.cloudPlusOutline),
-    getSubtitle: () =>
-        '当前使用：${VideoUtils.cdnService.desc}，部分 CDN 可能失效，如无法播放请尝试切换',
+    getSubtitle: () {
+      final base = '当前使用：${VideoUtils.cdnService.desc}';
+      if (Pref.enableBtr) {
+        return '$base（已由 BTR 矩阵接管，作为首选节点）';
+      }
+      return '$base，部分 CDN 可能失效，如无法播放请尝试切换';
+    },
     onTap: _showCDNDialog,
   ),
   NormalModel(
@@ -178,6 +209,51 @@ List<SettingsModel> get videoSettings => [
     onTap: _showHwDecDialog,
   ),
 ];
+
+Future<void> _showBtrModeDialog(
+  BuildContext context,
+  VoidCallback setState,
+) async {
+  final res = await showDialog<String>(
+    context: context,
+    builder: (context) => SelectDialog<String>(
+      title: 'BTR 加速模式',
+      value: Pref.btrMode,
+      values: BtrMode.values.map((e) => (e.name, e.label)).toList(),
+    ),
+  );
+  if (res != null) {
+    await GStorage.setting.put(SettingBoxKey.btrMode, res);
+    BtrService.instance.updateConfig(mode: BtrMode.fromString(res));
+    setState();
+  }
+}
+
+Future<void> _showBtrConcurrencyDialog(
+  BuildContext context,
+  VoidCallback setState,
+) async {
+  final options = <(int, String)>[
+    (0, '自动 (8~32 动态梯级)'),
+    (4, '4 线程 (节能/弱网)'),
+    (8, '8 线程 (推荐均衡)'),
+    (16, '16 线程 (高速并发)'),
+    (32, '32 线程 (极致拉满)'),
+  ];
+  final res = await showDialog<int>(
+    context: context,
+    builder: (context) => SelectDialog<int>(
+      title: 'BTR 并发线程数',
+      value: Pref.btrConcurrency,
+      values: options,
+    ),
+  );
+  if (res != null) {
+    await GStorage.setting.put(SettingBoxKey.btrConcurrency, res);
+    BtrService.instance.updateConfig(concurrency: res);
+    setState();
+  }
+}
 
 Future<void> _showCDNDialog(BuildContext context, VoidCallback setState) async {
   final res = await showDialog<CDNService>(
