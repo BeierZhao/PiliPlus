@@ -753,15 +753,16 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
 
     assert(_videoController == null);
 
+    final bool enableHA = hwdec != null && hwdec != 'no';
     _videoController = await VideoController.create(
       player,
       configuration: VideoControllerConfiguration(
-        enableHardwareAcceleration: hwdec != null,
+        enableHardwareAcceleration: enableHA,
         androidAttachSurfaceAfterVideoParameters: false,
         hwdec: hwdec,
       ),
     );
-    print('[BTR Player] VideoController created: hwdec=$hwdec, enableHA=${hwdec != null}, attachAfterParams=false');
+    print('[BTR Player] VideoController created: hwdec=$hwdec, enableHA=$enableHA, attachAfterParams=false');
 
     player.setMediaHeader(userAgent: BrowserUa.pc, referer: HttpString.baseUrl);
 
@@ -985,6 +986,15 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       stream.log.listen(((PlayerLog log) {
         if (log.level == 'error' || log.level == 'fatal') {
           print('[MPV] [${log.level.toUpperCase()}] ${log.prefix}: ${log.text}');
+          if (log.text.contains('Both surface and native_window are NULL') ||
+              log.text.contains('INVALID_OPERATION')) {
+            print('[BTR Player] Hardware decoder / surface failure detected -> automatically falling back to software decoding');
+            try {
+              (player.platform as dynamic)?.setProperty('hwdec', 'no');
+            } catch (e) {
+              print('[BTR Player] Fallback to software decoding failed: $e');
+            }
+          }
           if (kDebugMode) {
             Utils.reportError(
               '${log.level}: ${log.prefix}: ${log.text}\n${player.state.playlist}',

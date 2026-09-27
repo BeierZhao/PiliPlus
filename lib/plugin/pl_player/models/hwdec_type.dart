@@ -43,6 +43,6 @@ enum HwDecType {
   const HwDecType(this.hwdec, this.desc);
 
   static final String kHwdec = Platform.isAndroid
-      ? [mediacodecCopy.hwdec, autoSafe.hwdec].join(',')
+      ? no.hwdec
       : auto.hwdec;
 }

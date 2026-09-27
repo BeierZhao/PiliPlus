@@ -261,10 +261,18 @@ abstract final class Pref {
     return preferCodecs;
   }
 
-  static String get hardwareDecoding => _setting.get(
-    SettingBoxKey.hardwareDecoding,
-    defaultValue: HwDecType.kHwdec,
-  );
+  static String get hardwareDecoding {
+    final val = _setting.get(
+      SettingBoxKey.hardwareDecoding,
+      defaultValue: HwDecType.kHwdec,
+    );
+    if (Platform.isAndroid &&
+        (val == 'mediacodec,auto-safe' ||
+            val == 'mediacodec-copy,auto-safe')) {
+      return HwDecType.kHwdec;
+    }
+    return val;
+  }
 
   static String get videoSync =>
       _setting.get(SettingBoxKey.videoSync, defaultValue: 'display-resample');
