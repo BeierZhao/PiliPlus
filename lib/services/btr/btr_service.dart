@@ -116,6 +116,19 @@ class BtrService {
     return 'http://127.0.0.1:$port/stream?id=$sessionId';
   }
 
+  /// Extract session IDs from media source URLs or EDL playlists
+  Set<String> extractSessionIds(String? source) {
+    if (source == null || source.isEmpty) return const {};
+    final regex = RegExp(r'[?&]id=([a-zA-Z0-9_]+)');
+    final matches = regex.allMatches(source);
+    return matches.map((m) => m.group(1)!).toSet();
+  }
+
+  /// Retain specified sessions and cleanup older unused sessions
+  void retainSessions(Set<String> keepSessionIds) {
+    _proxyServer.retainSessions(keepSessionIds);
+  }
+
   /// Clear all active sessions (e.g. when video changes or player disposes)
   void clearActiveSessions() {
     _proxyServer.clearSessions();

@@ -46,24 +46,38 @@ class BtrStreamSession {
     );
   }
 
-  Future<int> ensureContentLength([BtrCancelToken? cancelToken]) async {
-    if (_totalLength != null && _totalLength! > 0) {
-      return _totalLength!;
-    }
+  Future<int>? _contentLengthFuture;
 
-    final token = cancelToken ?? BtrCancelToken();
-    final meta = await downloader.probeMetadata(
-      candidateUrls: candidateUrls,
-      cancelToken: token,
-    );
-    _totalLength = meta.totalLength;
-    
-    // Promote the verified working URL to the front of candidate list
-    if (_resolvedCandidateUrls != null) {
-      _resolvedCandidateUrls!.remove(meta.workingUrl);
-      _resolvedCandidateUrls!.insert(0, meta.workingUrl);
+  String get _contentType {
+    if (isAudio) return 'audio/mp4';
+    if (originalUrl.contains('.flv')) return 'video/x-flv';
+    return 'video/mp4';
+  }
+
+  Future<int> ensureContentLength([BtrCancelToken? cancelToken]) {
+    if (_totalLength != null && _totalLength! > 0) {
+      return Future.value(_totalLength!);
     }
-    return _totalLength!;
+    return _contentLengthFuture ??= () async {
+      final token = cancelToken ?? BtrCancelToken();
+      try {
+        final meta = await downloader.probeMetadata(
+          candidateUrls: candidateUrls,
+          cancelToken: token,
+        );
+        _totalLength = meta.totalLength;
+
+        // Promote the verified working URL to the front of candidate list
+        if (_resolvedCandidateUrls != null) {
+          _resolvedCandidateUrls!.remove(meta.workingUrl);
+          _resolvedCandidateUrls!.insert(0, meta.workingUrl);
+        }
+        return _totalLength!;
+      } catch (e) {
+        _contentLengthFuture = null;
+        rethrow;
+      }
+    }();
   }
 
   Future<void> handleHttpRequest(HttpRequest request) async {
@@ -111,7 +125,7 @@ class BtrStreamSession {
         request.response.headers.set(HttpHeaders.contentLengthHeader, contentLength.toString());
         request.response.headers.set(
           HttpHeaders.contentTypeHeader,
-          isAudio ? 'audio/mp4' : 'video/mp4',
+          _contentType,
         );
         if (range != null) {
           request.response.headers.set(
@@ -130,7 +144,7 @@ class BtrStreamSession {
       request.response.headers.set(HttpHeaders.contentLengthHeader, contentLength.toString());
       request.response.headers.set(
         HttpHeaders.contentTypeHeader,
-        isAudio ? 'audio/mp4' : 'video/mp4',
+        _contentType,
       );
       if (isPartial) {
         request.response.headers.set(

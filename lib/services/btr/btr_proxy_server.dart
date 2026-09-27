@@ -34,7 +34,22 @@ class BtrProxyServer {
   }
 
   void registerSession(BtrStreamSession session) {
+    if (_sessions.length >= 30) {
+      final oldestId = _sessions.keys.first;
+      _sessions.remove(oldestId)?.cancelAll();
+    }
     _sessions[session.sessionId] = session;
+  }
+
+  void retainSessions(Set<String> keepSessionIds) {
+    if (keepSessionIds.isEmpty) {
+      clearSessions();
+      return;
+    }
+    final toRemove = _sessions.keys.where((id) => !keepSessionIds.contains(id)).toList();
+    for (final id in toRemove) {
+      _sessions.remove(id)?.cancelAll();
+    }
   }
 
   void removeSession(String sessionId) {
@@ -74,6 +89,7 @@ class BtrProxyServer {
     if (path == '/stream') {
       final sessionId = request.uri.queryParameters['id'];
       if (sessionId == null || !_sessions.containsKey(sessionId)) {
+        print('[BTR Proxy] Session not found or expired: $sessionId (active: ${_sessions.keys.toList()})');
         request.response.statusCode = HttpStatus.notFound;
         request.response.write('Session not found or expired');
         await request.response.close();

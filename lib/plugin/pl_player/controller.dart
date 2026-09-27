@@ -608,7 +608,12 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   }) async {
     try {
       if (BtrService.instance.isEnabled) {
-        BtrService.instance.clearActiveSessions();
+        final keepIds = <String>{
+          ...BtrService.instance.extractSessionIds(dataSource.videoSource),
+          if (dataSource.audioSource != null)
+            ...BtrService.instance.extractSessionIds(dataSource.audioSource),
+        };
+        BtrService.instance.retainSessions(keepIds);
       }
       _processing = true;
       this.isLive = isLive;
