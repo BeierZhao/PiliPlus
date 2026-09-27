@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 import 'btr_cdn_resolver.dart';
 import 'btr_config.dart';
 import 'btr_idm_downloader.dart';
@@ -38,7 +40,8 @@ class BtrService {
     );
     _resolver = BtrCdnResolver();
     _downloader = BtrIdmDownloader(config: _config, resolver: _resolver);
-    _proxyServer = BtrProxyServer();
+    _proxyServer = BtrProxyServer()
+      ..parseBilibiliVideoHandler = parseBilibiliVideo;
 
     if (isEnabled) {
       unawaited(_proxyServer.start());
@@ -115,6 +118,79 @@ class BtrService {
   void clearActiveSessions() {
     _proxyServer.clearSessions();
     BtrStats.instance.reset();
+  }
+
+  /// Parse Bilibili Video URL or BV ID for standalone Web Workbench testing
+  Future<Map<String, dynamic>> parseBilibiliVideo(String input) async {
+    final client = HttpClient();
+    client.connectionTimeout = const Duration(seconds: 8);
+
+    try {
+      String bvid = input.trim();
+      final bvMatch = RegExp(r'BV[a-zA-Z0-9]+', caseSensitive: false).firstMatch(input);
+      if (bvMatch != null) {
+        bvid = bvMatch.group(0)!;
+      }
+
+      final pageReq = await client.getUrl(Uri.parse('https://www.bilibili.com/video/$bvid'));
+      pageReq.headers.set('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+      pageReq.headers.set('Accept', 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8');
+
+      final pageResp = await pageReq.close();
+      final pageHtml = await pageResp.transform(utf8.decoder).join();
+
+      int cid = 0;
+      String title = 'Bilibili Video ($bvid)';
+
+      final cidMatch = RegExp(r'"cid"\s*:\s*(\d+)').firstMatch(pageHtml);
+      if (cidMatch != null) {
+        cid = int.parse(cidMatch.group(1)!);
+      }
+
+      final titleMatch = RegExp(r'<title[^>]*>(.*?)</title>', caseSensitive: false).firstMatch(pageHtml);
+      if (titleMatch != null) {
+        title = titleMatch.group(1)!.replaceAll('_哔哩哔哩_bilibili', '').trim();
+      }
+
+      if (cid == 0) {
+        return {'success': false, 'error': '无法解析该视频的 CID'};
+      }
+
+      final playReq = await client.getUrl(Uri.parse('https://api.bilibili.com/x/player/playurl?bvid=$bvid&cid=$cid&qn=64&type=mp4&platform=html5'));
+      playReq.headers.set('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+      playReq.headers.set('Referer', 'https://www.bilibili.com/video/$bvid');
+
+      final playResp = await playReq.close();
+      final playBody = await playResp.transform(utf8.decoder).join();
+      final playJson = jsonDecode(playBody);
+
+      if (playJson['code'] != 0 || playJson['data']['durl'] == null) {
+        return {'success': false, 'error': 'B站 Playurl API 报错: ${playJson['message']}'};
+      }
+
+      final durl = playJson['data']['durl'][0];
+      final videoUrl = durl['url'] as String;
+      final backupUrls = (durl['backup_url'] as List?)?.cast<String>() ?? [];
+
+      final streamUrl = wrapUrl(
+        originalUrl: videoUrl,
+        backupUrls: backupUrls,
+        isAudio: false,
+      );
+
+      return {
+        'success': true,
+        'bvid': bvid,
+        'title': title,
+        'cid': cid,
+        'streamUrl': streamUrl,
+        'originalUrl': videoUrl,
+      };
+    } catch (e) {
+      return {'success': false, 'error': '解析异常: $e'};
+    } finally {
+      client.close(force: true);
+    }
   }
 
   void dispose() {
