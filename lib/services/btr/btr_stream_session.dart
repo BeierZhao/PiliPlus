@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:math';
+import 'dart:typed_data';
 
 import 'btr_cdn_resolver.dart';
 import 'btr_config.dart';
@@ -56,6 +57,12 @@ class BtrStreamSession {
       cancelToken: token,
     );
     _totalLength = meta.totalLength;
+    
+    // Promote the verified working URL to the front of candidate list
+    if (_resolvedCandidateUrls != null) {
+      _resolvedCandidateUrls!.remove(meta.workingUrl);
+      _resolvedCandidateUrls!.insert(0, meta.workingUrl);
+    }
     return _totalLength!;
   }
 
@@ -140,13 +147,17 @@ class BtrStreamSession {
         cancelToken: cancelToken,
       );
     } catch (e, st) {
-      print('BTR StreamSession Error: $e\n$st');
-      if (!cancelToken.isCancelled) {
-        try {
-          request.response.statusCode = HttpStatus.internalServerError;
-          await request.response.close();
-        } catch (_) {}
+      if (!cancelToken.isCancelled && e is! SocketException && e is! HttpException) {
+        print('BTR StreamSession Error: $e\n$st');
       }
+      try {
+        if (!cancelToken.isCancelled) {
+          request.response.statusCode = HttpStatus.internalServerError;
+        }
+      } catch (_) {}
+      try {
+        await request.response.close();
+      } catch (_) {}
     } finally {
       cancelToken.cancel();
       _activeTokens.remove(cancelToken);
@@ -190,6 +201,9 @@ class BtrStreamSession {
           cancelToken: cancelToken,
           isAudio: isAudio,
         );
+
+        // Prevent unhandled async exceptions if session is cancelled while futures are pending
+        unawaited(future.catchError((_) => BtrChunkResult(bytes: Uint8List(0), url: '')));
 
         activeDownloads[chunkIndex] = future;
       }

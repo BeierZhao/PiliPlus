@@ -146,101 +146,125 @@ class BtrIdmDownloader {
       throw ArgumentError('candidateUrls cannot be empty');
     }
 
-    final pool = candidateUrls;
-    final primaryUrl = pool[chunk.index % pool.length];
-    final rescuePool = resolver.rescueCandidates(pool).where((u) => u != primaryUrl).toList();
-    final rescueUrl = rescuePool.isNotEmpty ? rescuePool.first : primaryUrl;
+    Object? lastError;
 
-    final primaryCompleter = Completer<BtrChunkResult>();
-    final primaryCancel = BtrCancelToken();
-    cancelToken.addListener(primaryCancel.cancel);
+    // Try primary + hedge first, then fallback to other candidate URLs if needed
+    final triedUrls = <String>{};
 
-    var primaryFinished = false;
-    var primaryReceivedBytes = 0;
-    Timer? hedgeTimer;
-    BtrCancelToken? rescueCancel;
-
-    // Start primary attempt
-    unawaited(() async {
-      try {
-        final result = await _executeHttpRange(
-          chunk: chunk,
-          url: primaryUrl,
-          cancelToken: primaryCancel,
-          onProgress: (received) {
-            primaryReceivedBytes = received;
-          },
-        );
-        primaryFinished = true;
-        hedgeTimer?.cancel();
-        rescueCancel?.cancel();
-        if (!primaryCompleter.isCompleted) {
-          primaryCompleter.complete(result);
-        }
-      } catch (e) {
-        primaryFinished = true;
-        if (!primaryCompleter.isCompleted && (hedgeTimer == null || !hedgeTimer!.isActive)) {
-          primaryCompleter.completeError(e);
-        }
+    for (var attempt = 0; attempt < candidateUrls.length; attempt++) {
+      if (cancelToken.isCancelled) {
+        throw const SocketException('Task cancelled');
       }
-    }());
 
-    // Schedule Hedge Racing if not finished within hedgeDelayMs
-    final hedgeCompleter = Completer<BtrChunkResult>();
-    final delay = Duration(milliseconds: config.hedgeDelayMs);
+      final rangeAvailable = resolver.rangeCandidates(candidateUrls);
+      final untriedRange = rangeAvailable.where((u) => !triedUrls.contains(u)).toList();
+      final pool = untriedRange.isNotEmpty
+          ? untriedRange
+          : candidateUrls.where((u) => !triedUrls.contains(u)).toList();
+      if (pool.isEmpty) break;
 
-    hedgeTimer = Timer(delay, () async {
-      if (primaryFinished || primaryCompleter.isCompleted || cancelToken.isCancelled) return;
+      final primaryUrl = pool[chunk.index % pool.length];
+      triedUrls.add(primaryUrl);
 
-      // Check if primary is progressing too slowly (less than 50% after delay)
-      final remaining = chunk.length - primaryReceivedBytes;
-      if (remaining <= 0) return;
+      final rescuePool = pool.where((u) => u != primaryUrl).toList();
+      final rescueUrl = rescuePool.isNotEmpty ? rescuePool.first : primaryUrl;
 
-      rescueCancel = BtrCancelToken();
-      cancelToken.addListener(rescueCancel!.cancel);
+      final primaryCompleter = Completer<BtrChunkResult>();
+      final primaryCancel = BtrCancelToken();
+      cancelToken.addListener(primaryCancel.cancel);
 
-      // We can hedge the remaining tail if >= 32KB, otherwise the full chunk
-      final hedgeChunk = (primaryReceivedBytes >= 32 * 1024 && remaining >= 32 * 1024)
-          ? BtrChunk(index: chunk.index, start: chunk.start + primaryReceivedBytes, end: chunk.end)
-          : chunk;
+      var primaryFinished = false;
+      var primaryReceivedBytes = 0;
+      Timer? hedgeTimer;
+      BtrCancelToken? rescueCancel;
 
-      try {
-        final rescueResult = await _executeHttpRange(
-          chunk: hedgeChunk,
-          url: rescueUrl,
-          cancelToken: rescueCancel!,
-        );
-
-        if (!primaryCompleter.isCompleted && !hedgeCompleter.isCompleted) {
-          primaryCancel.cancel(); // Abort slower primary
-          BtrStats.instance.onHedgeRescue();
-
-          if (hedgeChunk.start == chunk.start) {
-            hedgeCompleter.complete(rescueResult);
-          } else {
-            // Spliced result (primary prefix + rescue tail)
-            // Note: If splicing is needed and primary failed, rescue full chunk is safer.
-            hedgeCompleter.complete(rescueResult);
+      // Start primary attempt
+      unawaited(() async {
+        try {
+          final result = await _executeHttpRange(
+            chunk: chunk,
+            url: primaryUrl,
+            cancelToken: primaryCancel,
+            onProgress: (received) {
+              primaryReceivedBytes = received;
+            },
+          );
+          primaryFinished = true;
+          hedgeTimer?.cancel();
+          rescueCancel?.cancel();
+          if (!primaryCompleter.isCompleted) {
+            resolver.recordSuccess(primaryUrl, result.bytes.length / 0.5);
+            primaryCompleter.complete(result);
+          }
+        } catch (e) {
+          primaryFinished = true;
+          resolver.recordFailure(primaryUrl, e, primaryReceivedBytes);
+          if (!primaryCompleter.isCompleted && (hedgeTimer == null || !hedgeTimer!.isActive)) {
+            primaryCompleter.completeError(e);
           }
         }
-      } catch (e) {
-        if (!primaryCompleter.isCompleted && !hedgeCompleter.isCompleted) {
-          hedgeCompleter.completeError(e);
-        }
-      }
-    });
+      }());
 
-    try {
-      return await Future.any([
-        primaryCompleter.future,
-        hedgeCompleter.future,
-      ]);
-    } finally {
-      hedgeTimer.cancel();
-      primaryCancel.cancel();
-      rescueCancel?.cancel();
-      cancelToken.removeListener(primaryCancel.cancel);
+      // Schedule Hedge Racing if not finished within hedgeDelayMs
+      final hedgeCompleter = Completer<BtrChunkResult>();
+      final delay = Duration(milliseconds: config.hedgeDelayMs);
+
+      hedgeTimer = Timer(delay, () async {
+        if (primaryFinished || primaryCompleter.isCompleted || cancelToken.isCancelled) return;
+
+        final remaining = chunk.length - primaryReceivedBytes;
+        if (remaining <= 0) return;
+
+        rescueCancel = BtrCancelToken();
+        cancelToken.addListener(rescueCancel!.cancel);
+
+        final hedgeChunk = (primaryReceivedBytes >= 32 * 1024 && remaining >= 32 * 1024)
+            ? BtrChunk(index: chunk.index, start: chunk.start + primaryReceivedBytes, end: chunk.end)
+            : chunk;
+
+        try {
+          final rescueResult = await _executeHttpRange(
+            chunk: hedgeChunk,
+            url: rescueUrl,
+            cancelToken: rescueCancel!,
+          );
+
+          if (!primaryCompleter.isCompleted && !hedgeCompleter.isCompleted) {
+            primaryCancel.cancel(); // Abort slower primary
+            BtrStats.instance.onHedgeRescue();
+            resolver.recordSuccess(rescueUrl, rescueResult.bytes.length / 0.5);
+            hedgeCompleter.complete(rescueResult);
+          }
+        } catch (e) {
+          resolver.recordFailure(rescueUrl, e, 0);
+          if (!primaryCompleter.isCompleted && !hedgeCompleter.isCompleted) {
+            hedgeCompleter.completeError(e);
+          }
+        }
+      });
+
+      try {
+        final result = await Future.any([
+          primaryCompleter.future,
+          hedgeCompleter.future,
+        ]);
+        hedgeTimer.cancel();
+        primaryCancel.cancel();
+        rescueCancel?.cancel();
+        cancelToken.removeListener(primaryCancel.cancel);
+        return result;
+      } catch (e) {
+        lastError = e;
+        hedgeTimer.cancel();
+        primaryCancel.cancel();
+        rescueCancel?.cancel();
+        cancelToken.removeListener(primaryCancel.cancel);
+        if (cancelToken.isCancelled) rethrow;
+        // Continue loop to try next untried candidate URL
+      }
     }
+
+    throw lastError ?? SocketException('All candidate URLs failed for chunk ${chunk.index}');
   }
 
   Future<BtrChunkResult> _executeHttpRange({
@@ -349,27 +373,39 @@ class BtrIdmDownloader {
     if (candidateUrls.isEmpty) {
       throw ArgumentError('candidateUrls cannot be empty');
     }
-    final pool = candidateUrls;
     final probeChunk = const BtrChunk(index: 0, start: 0, end: 1);
+    final completer = Completer<({int totalLength, String workingUrl})>();
+    final pool = candidateUrls.take(4).toList();
 
-    Object? lastError;
+    var errors = 0;
     for (final url in pool) {
-      if (cancelToken.isCancelled) throw const SocketException('Cancelled');
-      try {
-        final result = await _executeHttpRange(
-          chunk: probeChunk,
-          url: url,
-          cancelToken: cancelToken,
-        );
-        if (result.totalLength != null && result.totalLength! > 0) {
-          return (totalLength: result.totalLength!, workingUrl: url);
+      if (completer.isCompleted || cancelToken.isCancelled) break;
+      unawaited(() async {
+        try {
+          final result = await _executeHttpRange(
+            chunk: probeChunk,
+            url: url,
+            cancelToken: cancelToken,
+          );
+          if (result.totalLength != null && result.totalLength! > 0) {
+            if (!completer.isCompleted) {
+              completer.complete((totalLength: result.totalLength!, workingUrl: url));
+            }
+          }
+        } catch (e) {
+          errors++;
+          if (errors >= pool.length && !completer.isCompleted) {
+            completer.completeError(e);
+          }
         }
-      } catch (e) {
-        lastError = e;
-      }
+      }());
+      await Future.delayed(const Duration(milliseconds: 150));
     }
 
-    throw lastError ?? const HttpException('Failed to probe media metadata');
+    return completer.future.timeout(
+      const Duration(milliseconds: 3500),
+      onTimeout: () => throw const SocketException('Metadata probe timed out'),
+    );
   }
 
   void dispose() {
