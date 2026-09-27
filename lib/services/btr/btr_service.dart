@@ -44,7 +44,9 @@ class BtrService {
       ..parseBilibiliVideoHandler = parseBilibiliVideo;
 
     if (isEnabled) {
-      unawaited(_proxyServer.start());
+      unawaited(_proxyServer.start().then((_) {
+        print('[BTR] Proxy Server Test Workbench: http://127.0.0.1:${_proxyServer.port}/');
+      }));
     }
   }
 

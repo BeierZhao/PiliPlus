@@ -15,15 +15,21 @@ class BtrProxyServer {
 
   String? get baseUrl => isRunning ? 'http://127.0.0.1:$port' : null;
 
-  Future<void> start() async {
+  Future<void> start({int preferredPort = 8341}) async {
     if (_server != null) return;
 
     try {
-      _server = await HttpServer.bind(InternetAddress.anyIPv4, 0, shared: true);
+      _server = await HttpServer.bind(InternetAddress.anyIPv4, preferredPort, shared: true);
       _server!.autoCompress = false;
       _server!.listen(_handleRequest, onError: (e) {});
     } catch (_) {
-      _server = null;
+      try {
+        _server = await HttpServer.bind(InternetAddress.anyIPv4, 0, shared: true);
+        _server!.autoCompress = false;
+        _server!.listen(_handleRequest, onError: (e) {});
+      } catch (_) {
+        _server = null;
+      }
     }
   }
 
