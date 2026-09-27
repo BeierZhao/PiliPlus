@@ -290,7 +290,7 @@ abstract final class Pref {
   }
 
   static bool get enableBtr =>
-      _setting.get(SettingBoxKey.enableBtr, defaultValue: false);
+      _setting.get(SettingBoxKey.enableBtr, defaultValue: true);
 
   static String get btrMode =>
       _setting.get(SettingBoxKey.btrMode, defaultValue: 'mainland');

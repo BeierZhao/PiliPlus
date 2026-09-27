@@ -62,7 +62,7 @@ List<SettingsModel> get videoSettings => [
     subtitle: '利用多 CDN 镜像与并发切片对冲加速，解决 4K/杜比/高码率及海外卡顿',
     leading: const Icon(Icons.rocket_launch_outlined),
     setKey: SettingBoxKey.enableBtr,
-    defaultVal: false,
+    defaultVal: true,
     onChanged: (value) {
       BtrService.instance.updateConfig(enabled: value);
     },
