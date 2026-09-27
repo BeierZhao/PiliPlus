@@ -196,8 +196,8 @@ class BtrStreamSession {
     final int chunkSize = config.minChunkBytes.clamp(128 * 1024, 512 * 1024);
     final chunks = BtrRangeUtils.splitRange(start, end, concurrency * 4, minChunkBytes: chunkSize);
 
-    // Sliding window buffer: max 30MB ahead
-    final maxWindowChunks = max(concurrency, (config.maxBufferBytes / chunkSize).floor());
+    // Sliding window buffer: max concurrency * 2 ahead (prevent exhausting semaphore)
+    final maxWindowChunks = max(concurrency, min(concurrency * 2, (config.maxBufferBytes / chunkSize).floor()));
     final activeDownloads = <int, Future<BtrChunkResult>>{};
 
     int nextToDownload = 0;

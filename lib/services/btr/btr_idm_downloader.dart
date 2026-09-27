@@ -147,8 +147,6 @@ class BtrIdmDownloader {
     }
 
     Object? lastError;
-
-    // Try primary + hedge first, then fallback to other candidate URLs if needed
     final triedUrls = <String>{};
 
     for (var attempt = 0; attempt < candidateUrls.length; attempt++) {
@@ -167,100 +165,118 @@ class BtrIdmDownloader {
       triedUrls.add(primaryUrl);
 
       final rescuePool = pool.where((u) => u != primaryUrl).toList();
-      final rescueUrl = rescuePool.isNotEmpty ? rescuePool.first : primaryUrl;
+      final rescueUrl = rescuePool.isNotEmpty ? rescuePool.first : null;
 
-      final primaryCompleter = Completer<BtrChunkResult>();
+      final chunkCompleter = Completer<BtrChunkResult>();
       final primaryCancel = BtrCancelToken();
-      cancelToken.addListener(primaryCancel.cancel);
-
-      var primaryFinished = false;
-      var primaryReceivedBytes = 0;
+      final rescueCancel = BtrCancelToken();
       Timer? hedgeTimer;
-      BtrCancelToken? rescueCancel;
+
+      void onMasterCancel() {
+        primaryCancel.cancel();
+        rescueCancel.cancel();
+        hedgeTimer?.cancel();
+        if (!chunkCompleter.isCompleted) {
+          chunkCompleter.completeError(const SocketException('Task cancelled'));
+        }
+      }
+
+      cancelToken.addListener(onMasterCancel);
+
+      var primaryDone = false;
+      var rescueDone = false;
+      var primaryFailed = false;
+      var rescueFailed = false;
+      Object? primaryErr;
+      Object? rescueErr;
+
+      void checkBothFailed() {
+        final hasRescue = rescueUrl != null;
+        if (primaryFailed && (!hasRescue || rescueFailed)) {
+          if (!chunkCompleter.isCompleted) {
+            chunkCompleter.completeError(
+              primaryErr ?? rescueErr ?? const SocketException('Both primary and rescue failed'),
+            );
+          }
+        }
+      }
+
+      void startRescue() {
+        if (rescueDone || rescueUrl == null || chunkCompleter.isCompleted || cancelToken.isCancelled) return;
+        rescueDone = true;
+        unawaited(() async {
+          try {
+            final res = await _executeHttpRange(
+              chunk: chunk,
+              url: rescueUrl,
+              cancelToken: rescueCancel,
+            );
+            if (!chunkCompleter.isCompleted) {
+              primaryCancel.cancel();
+              BtrStats.instance.onHedgeRescue();
+              resolver.recordSuccess(rescueUrl, res.bytes.length / 0.5);
+              chunkCompleter.complete(res);
+            }
+          } catch (e) {
+            rescueFailed = true;
+            rescueErr = e;
+            resolver.recordFailure(rescueUrl, e, 0);
+            checkBothFailed();
+          }
+        }());
+      }
 
       // Start primary attempt
       unawaited(() async {
         try {
-          final result = await _executeHttpRange(
+          final res = await _executeHttpRange(
             chunk: chunk,
             url: primaryUrl,
             cancelToken: primaryCancel,
-            onProgress: (received) {
-              primaryReceivedBytes = received;
-            },
           );
-          primaryFinished = true;
+          primaryDone = true;
           hedgeTimer?.cancel();
-          rescueCancel?.cancel();
-          if (!primaryCompleter.isCompleted) {
-            resolver.recordSuccess(primaryUrl, result.bytes.length / 0.5);
-            primaryCompleter.complete(result);
+          rescueCancel.cancel();
+          if (!chunkCompleter.isCompleted) {
+            resolver.recordSuccess(primaryUrl, res.bytes.length / 0.5);
+            chunkCompleter.complete(res);
           }
         } catch (e) {
-          primaryFinished = true;
-          resolver.recordFailure(primaryUrl, e, primaryReceivedBytes);
-          if (!primaryCompleter.isCompleted && (hedgeTimer == null || !hedgeTimer!.isActive)) {
-            primaryCompleter.completeError(e);
+          primaryFailed = true;
+          primaryErr = e;
+          resolver.recordFailure(primaryUrl, e, 0);
+          hedgeTimer?.cancel();
+          if (rescueUrl != null && !rescueDone) {
+            // Primary failed: trigger rescue immediately without waiting for delay
+            startRescue();
+          } else {
+            checkBothFailed();
           }
         }
       }());
 
-      // Schedule Hedge Racing if not finished within hedgeDelayMs
-      final hedgeCompleter = Completer<BtrChunkResult>();
-      final delay = Duration(milliseconds: config.hedgeDelayMs);
-
-      hedgeTimer = Timer(delay, () async {
-        if (primaryFinished || primaryCompleter.isCompleted || cancelToken.isCancelled) return;
-
-        final remaining = chunk.length - primaryReceivedBytes;
-        if (remaining <= 0) return;
-
-        rescueCancel = BtrCancelToken();
-        cancelToken.addListener(rescueCancel!.cancel);
-
-        final hedgeChunk = (primaryReceivedBytes >= 32 * 1024 && remaining >= 32 * 1024)
-            ? BtrChunk(index: chunk.index, start: chunk.start + primaryReceivedBytes, end: chunk.end)
-            : chunk;
-
-        try {
-          final rescueResult = await _executeHttpRange(
-            chunk: hedgeChunk,
-            url: rescueUrl,
-            cancelToken: rescueCancel!,
-          );
-
-          if (!primaryCompleter.isCompleted && !hedgeCompleter.isCompleted) {
-            primaryCancel.cancel(); // Abort slower primary
-            BtrStats.instance.onHedgeRescue();
-            resolver.recordSuccess(rescueUrl, rescueResult.bytes.length / 0.5);
-            hedgeCompleter.complete(rescueResult);
+      if (rescueUrl != null) {
+        hedgeTimer = Timer(Duration(milliseconds: config.hedgeDelayMs), () {
+          if (!primaryDone && !chunkCompleter.isCompleted) {
+            startRescue();
           }
-        } catch (e) {
-          resolver.recordFailure(rescueUrl, e, 0);
-          if (!primaryCompleter.isCompleted && !hedgeCompleter.isCompleted) {
-            hedgeCompleter.completeError(e);
-          }
-        }
-      });
+        });
+      }
 
       try {
-        final result = await Future.any([
-          primaryCompleter.future,
-          hedgeCompleter.future,
-        ]);
-        hedgeTimer.cancel();
+        final result = await chunkCompleter.future;
+        hedgeTimer?.cancel();
         primaryCancel.cancel();
-        rescueCancel?.cancel();
-        cancelToken.removeListener(primaryCancel.cancel);
+        rescueCancel.cancel();
+        cancelToken.removeListener(onMasterCancel);
         return result;
       } catch (e) {
         lastError = e;
-        hedgeTimer.cancel();
+        hedgeTimer?.cancel();
         primaryCancel.cancel();
-        rescueCancel?.cancel();
-        cancelToken.removeListener(primaryCancel.cancel);
+        rescueCancel.cancel();
+        cancelToken.removeListener(onMasterCancel);
         if (cancelToken.isCancelled) rethrow;
-        // Continue loop to try next untried candidate URL
       }
     }
 
@@ -326,9 +342,14 @@ class BtrIdmDownloader {
         throw HttpException('HTTP $statusCode', uri: Uri.parse(url));
       }
 
-      final contentRangeHeader = response.headers.value(HttpHeaders.contentRangeHeader);
-      final parsedRange = BtrRangeUtils.parseContentRange(contentRangeHeader);
-      final totalLength = parsedRange?.total;
+      final int? totalLength;
+      if (statusCode == HttpStatus.partialContent) {
+        final contentRangeHeader = response.headers.value(HttpHeaders.contentRangeHeader);
+        final parsedRange = BtrRangeUtils.parseContentRange(contentRangeHeader);
+        totalLength = parsedRange?.total;
+      } else {
+        totalLength = response.contentLength > 0 ? response.contentLength : null;
+      }
 
       await for (final data in response) {
         resetStallTimer();
@@ -336,6 +357,12 @@ class BtrIdmDownloader {
         received += data.length;
         onProgress?.call(received);
         BtrStats.instance.onBytesReceived(data.length);
+        if (statusCode == HttpStatus.ok && received >= chunk.length) {
+          try {
+            request.abort();
+          } catch (_) {}
+          break;
+        }
       }
 
       final elapsedMs = max(1, DateTime.now().millisecondsSinceEpoch - startedAt);
@@ -375,37 +402,55 @@ class BtrIdmDownloader {
     }
     final probeChunk = const BtrChunk(index: 0, start: 0, end: 1);
     final completer = Completer<({int totalLength, String workingUrl})>();
-    final pool = candidateUrls.take(4).toList();
+    final probeCancel = BtrCancelToken();
+    cancelToken.addListener(probeCancel.cancel);
 
+    final pool = candidateUrls.take(4).toList();
     var errors = 0;
+
+    void checkError() {
+      errors++;
+      if (errors >= pool.length && !completer.isCompleted) {
+        completer.completeError(const SocketException('All probe candidates failed'));
+      }
+    }
+
     for (final url in pool) {
-      if (completer.isCompleted || cancelToken.isCancelled) break;
+      if (completer.isCompleted || probeCancel.isCancelled) break;
       unawaited(() async {
         try {
           final result = await _executeHttpRange(
             chunk: probeChunk,
             url: url,
-            cancelToken: cancelToken,
+            cancelToken: probeCancel,
           );
           if (result.totalLength != null && result.totalLength! > 0) {
             if (!completer.isCompleted) {
+              probeCancel.cancel(); // Cancel other racing probes immediately to free semaphore slots
               completer.complete((totalLength: result.totalLength!, workingUrl: url));
             }
+          } else {
+            checkError();
           }
         } catch (e) {
-          errors++;
-          if (errors >= pool.length && !completer.isCompleted) {
-            completer.completeError(e);
-          }
+          checkError();
         }
       }());
-      await Future.delayed(const Duration(milliseconds: 150));
+      await Future.delayed(const Duration(milliseconds: 100));
     }
 
-    return completer.future.timeout(
-      const Duration(milliseconds: 3500),
-      onTimeout: () => throw const SocketException('Metadata probe timed out'),
-    );
+    try {
+      return await completer.future.timeout(
+        const Duration(milliseconds: 3000),
+        onTimeout: () {
+          probeCancel.cancel();
+          throw const SocketException('Metadata probe timed out');
+        },
+      );
+    } finally {
+      probeCancel.cancel();
+      cancelToken.removeListener(probeCancel.cancel);
+    }
   }
 
   void dispose() {

@@ -34,10 +34,10 @@ class BtrConfig {
     this.concurrency = 8,
     this.customHosts = const [],
     this.minChunkBytes = 64 * 1024,
-    this.firstByteTimeoutMs = 5500,
-    this.stallTimeoutMs = 4000,
-    this.attemptTimeoutMs = 15000,
-    this.hedgeDelayMs = 900,
+    this.firstByteTimeoutMs = 3500,
+    this.stallTimeoutMs = 3500,
+    this.attemptTimeoutMs = 12000,
+    this.hedgeDelayMs = 600,
     this.maxBufferBytes = 32 * 1024 * 1024,
   });
 
