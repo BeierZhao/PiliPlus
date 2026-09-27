@@ -2,10 +2,10 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:math';
 
-import 'package:PiliPlus/services/btr/btr_cdn_resolver.dart';
-import 'package:PiliPlus/services/btr/btr_config.dart';
-import 'package:PiliPlus/services/btr/btr_idm_downloader.dart';
-import 'package:PiliPlus/services/btr/btr_range.dart';
+import 'btr_cdn_resolver.dart';
+import 'btr_config.dart';
+import 'btr_idm_downloader.dart';
+import 'btr_range.dart';
 
 class BtrStreamSession {
   final String sessionId;

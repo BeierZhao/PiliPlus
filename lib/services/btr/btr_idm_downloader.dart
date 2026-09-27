@@ -3,11 +3,10 @@ import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
 
-import 'package:PiliPlus/http/browser_ua.dart';
-import 'package:PiliPlus/services/btr/btr_cdn_resolver.dart';
-import 'package:PiliPlus/services/btr/btr_config.dart';
-import 'package:PiliPlus/services/btr/btr_range.dart';
-import 'package:PiliPlus/services/btr/btr_stats.dart';
+import 'btr_cdn_resolver.dart';
+import 'btr_config.dart';
+import 'btr_range.dart';
+import 'btr_stats.dart';
 
 class BtrCancelToken {
   bool _isCancelled = false;
@@ -282,7 +281,10 @@ class BtrIdmDownloader {
     try {
       request = await _httpClient.getUrl(Uri.parse(url));
       request.headers.set('Host', Uri.parse(url).host);
-      request.headers.set('User-Agent', BrowserUa.platform);
+      request.headers.set(
+        'User-Agent',
+        'Mozilla/5.0 (Linux; Android 10; SM-G975F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.101 Mobile Safari/537.36',
+      );
       request.headers.set('Referer', 'https://www.bilibili.com/');
       request.headers.set('Range', 'bytes=${chunk.start}-${chunk.end}');
       request.headers.set('Connection', 'keep-alive');

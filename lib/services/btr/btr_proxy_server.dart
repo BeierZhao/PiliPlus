@@ -1,8 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:PiliPlus/services/btr/btr_stats.dart';
-import 'package:PiliPlus/services/btr/btr_stream_session.dart';
+import 'btr_stats.dart';
+import 'btr_stream_session.dart';
 
 class BtrProxyServer {
   HttpServer? _server;

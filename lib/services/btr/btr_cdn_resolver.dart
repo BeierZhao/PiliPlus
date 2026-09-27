@@ -1,7 +1,7 @@
 import 'dart:math';
-import 'package:PiliPlus/services/btr/btr_config.dart';
-import 'package:PiliPlus/services/btr/btr_range.dart';
-import 'package:PiliPlus/services/btr/btr_stats.dart';
+import 'btr_config.dart';
+import 'btr_range.dart';
+import 'btr_stats.dart';
 
 class _RouteMetric {
   int lastSuccessAt = 0;

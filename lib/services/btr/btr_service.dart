@@ -1,12 +1,12 @@
 import 'dart:async';
-import 'package:PiliPlus/services/btr/btr_cdn_resolver.dart';
-import 'package:PiliPlus/services/btr/btr_config.dart';
-import 'package:PiliPlus/services/btr/btr_idm_downloader.dart';
-import 'package:PiliPlus/services/btr/btr_proxy_server.dart';
-import 'package:PiliPlus/services/btr/btr_range.dart';
-import 'package:PiliPlus/services/btr/btr_stats.dart';
-import 'package:PiliPlus/services/btr/btr_stream_session.dart';
-import 'package:PiliPlus/utils/storage_pref.dart';
+import 'btr_cdn_resolver.dart';
+import 'btr_config.dart';
+import 'btr_idm_downloader.dart';
+import 'btr_proxy_server.dart';
+import 'btr_range.dart';
+import 'btr_stats.dart';
+import 'btr_stream_session.dart';
+import '../../utils/storage_pref.dart';
 
 class BtrService {
   static final BtrService instance = BtrService._();
