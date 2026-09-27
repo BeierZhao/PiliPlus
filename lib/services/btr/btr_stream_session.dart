@@ -139,7 +139,8 @@ class BtrStreamSession {
         response: request.response,
         cancelToken: cancelToken,
       );
-    } catch (e) {
+    } catch (e, st) {
+      print('BTR StreamSession Error: $e\n$st');
       if (!cancelToken.isCancelled) {
         try {
           request.response.statusCode = HttpStatus.internalServerError;

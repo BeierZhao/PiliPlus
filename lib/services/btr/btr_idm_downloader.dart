@@ -280,7 +280,6 @@ class BtrIdmDownloader {
 
     try {
       request = await _httpClient.getUrl(Uri.parse(url));
-      request.headers.set('Host', Uri.parse(url).host);
       request.headers.set(
         'User-Agent',
         'Mozilla/5.0 (Linux; Android 10; SM-G975F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.101 Mobile Safari/537.36',

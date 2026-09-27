@@ -102,7 +102,13 @@ class BtrCdnResolver {
     if (BtrRangeUtils.normalizeCdnHost(host) != host) return null;
     try {
       final uri = Uri.parse(rawUrl);
-      return uri.replace(scheme: 'https', host: host).toString();
+      return Uri(
+        scheme: 'https',
+        host: host,
+        path: uri.path,
+        query: uri.hasQuery ? uri.query : null,
+        fragment: uri.hasFragment ? uri.fragment : null,
+      ).toString();
     } catch (_) {
       return null;
     }
@@ -134,15 +140,17 @@ class BtrCdnResolver {
 
     final donor = originals.firstWhere(
       (u) => !isAkamaiUrl(u),
-      orElse: () => originals.isNotEmpty ? originals.first : primaryUrl,
+      orElse: () => '',
     );
 
     final synthetic = <String>[];
-    for (final host in targetHosts) {
-      if (isHostBanned(host)) continue;
-      final swapped = swapHost(donor, host, allowAkamai: true);
-      if (swapped != null && !synthetic.contains(swapped)) {
-        synthetic.add(swapped);
+    if (donor.isNotEmpty) {
+      for (final host in targetHosts) {
+        if (isHostBanned(host)) continue;
+        final swapped = swapHost(donor, host, allowAkamai: true);
+        if (swapped != null && !synthetic.contains(swapped)) {
+          synthetic.add(swapped);
+        }
       }
     }
 
