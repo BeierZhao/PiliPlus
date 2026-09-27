@@ -990,9 +990,11 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
               log.text.contains('INVALID_OPERATION')) {
             print('[BTR Player] Hardware decoder / surface failure detected -> automatically falling back to software decoding');
             try {
-              (player.platform as dynamic)?.setProperty('hwdec', 'no');
-            } catch (e) {
-              print('[BTR Player] Fallback to software decoding failed: $e');
+              (player as dynamic).setProperty('hwdec', 'no');
+            } catch (_) {
+              try {
+                player.command(const ['set', 'hwdec', 'no']);
+              } catch (_) {}
             }
           }
           if (kDebugMode) {
