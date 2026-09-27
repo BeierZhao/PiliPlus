@@ -46,9 +46,14 @@ class BtrProxyServer {
       clearSessions();
       return;
     }
-    final toRemove = _sessions.keys.where((id) => !keepSessionIds.contains(id)).toList();
-    for (final id in toRemove) {
-      _sessions.remove(id)?.cancelAll();
+    // Retain up to 20 recent sessions to prevent premature teardown during navigation
+    while (_sessions.length > 20) {
+      final candidateId = _sessions.keys.firstWhere(
+        (id) => !keepSessionIds.contains(id),
+        orElse: () => '',
+      );
+      if (candidateId.isEmpty) break;
+      _sessions.remove(candidateId)?.cancelAll();
     }
   }
 
@@ -88,6 +93,8 @@ class BtrProxyServer {
 
     if (path == '/stream') {
       final sessionId = request.uri.queryParameters['id'];
+      final range = request.headers.value(HttpHeaders.rangeHeader);
+      print('[BTR Proxy] Incoming ${request.method} /stream (id: $sessionId, Range: $range)');
       if (sessionId == null || !_sessions.containsKey(sessionId)) {
         print('[BTR Proxy] Session not found or expired: $sessionId (active: ${_sessions.keys.toList()})');
         request.response.statusCode = HttpStatus.notFound;

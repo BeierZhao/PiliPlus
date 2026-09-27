@@ -208,6 +208,8 @@ class BtrStreamSession {
       firstChunkSize: 128 * 1024,
     );
 
+    print('[BTR Stream] Session $sessionId streaming range: $start-$end ($rangeLen bytes, ${chunks.length} chunks, ${isAudio ? "audio" : "video"})');
+
     // Sliding window buffer: max concurrency * 2 ahead (prevent exhausting memory or network)
     final maxWindowChunks = isAudio ? 4 : max(concurrency, min(concurrency * 2, 16));
     final activeDownloads = <int, Future<BtrChunkResult>>{};
@@ -239,6 +241,7 @@ class BtrStreamSession {
     // Initial fill
     fillWindow();
 
+    var totalBytesSent = 0;
     for (var i = 0; i < chunks.length; i++) {
       if (cancelToken.isCancelled) break;
 
@@ -250,11 +253,20 @@ class BtrStreamSession {
       final chunkResult = await future;
       if (cancelToken.isCancelled) break;
 
+      // CRITICAL: Strict chunk length check to prevent bitstream corruption!
+      if (chunkResult.bytes.length != chunks[i].length) {
+        throw SocketException(
+          '[BTR] Chunk $i size mismatch: expected ${chunks[i].length}, got ${chunkResult.bytes.length}',
+        );
+      }
+
       response.add(chunkResult.bytes);
+      totalBytesSent += chunkResult.bytes.length;
       await response.flush(); // Backpressure: waits until socket buffer is drained
     }
 
     if (!cancelToken.isCancelled) {
+      print('[BTR Stream] Session $sessionId completed: sent $totalBytesSent/$rangeLen bytes');
       await response.close();
     }
   }

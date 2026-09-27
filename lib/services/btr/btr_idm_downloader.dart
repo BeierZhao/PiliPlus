@@ -209,9 +209,9 @@ class BtrIdmDownloader {
         final hasRescue = rescueUrl != null;
         if (primaryFailed && (!hasRescue || rescueFailed)) {
           if (!chunkCompleter.isCompleted) {
-            chunkCompleter.completeError(
-              primaryErr ?? rescueErr ?? const SocketException('Both primary and rescue failed'),
-            );
+            final err = primaryErr ?? rescueErr ?? const SocketException('Both primary and rescue failed');
+            print('[BTR Chunk] #${chunk.index} BOTH failed! primary: $primaryErr, rescue: $rescueErr');
+            chunkCompleter.completeError(err);
           }
         }
       }
@@ -219,6 +219,8 @@ class BtrIdmDownloader {
       void startRescue() {
         if (rescueDone || rescueUrl == null || chunkCompleter.isCompleted || cancelToken.isCancelled) return;
         rescueDone = true;
+        final rescueHost = Uri.parse(rescueUrl).host;
+        print('[BTR Chunk] #${chunk.index} HEDGE rescue triggered -> $rescueHost');
         unawaited(() async {
           try {
             final res = await _executeHttpRange(
@@ -232,12 +234,14 @@ class BtrIdmDownloader {
               primaryCancel.cancel();
               BtrStats.instance.onHedgeRescue();
               resolver.recordSuccess(rescueUrl, res.bytes.length / 0.5);
+              print('[BTR Chunk] #${chunk.index} RESCUE won race from $rescueHost (${res.bytes.length}B)');
               chunkCompleter.complete(res);
             }
           } catch (e) {
             rescueFailed = true;
             rescueErr = e;
             resolver.recordFailure(rescueUrl, e, 0);
+            print('[BTR Chunk] #${chunk.index} RESCUE failed ($rescueHost): $e');
             checkBothFailed();
           }
         }());
@@ -245,6 +249,7 @@ class BtrIdmDownloader {
 
       // Start primary attempt
       unawaited(() async {
+        final primaryHost = Uri.parse(primaryUrl).host;
         try {
           final res = await _executeHttpRange(
             chunk: chunk,
@@ -265,6 +270,7 @@ class BtrIdmDownloader {
           primaryErr = e;
           resolver.recordFailure(primaryUrl, e, 0);
           hedgeTimer?.cancel();
+          print('[BTR Chunk] #${chunk.index} PRIMARY failed ($primaryHost): $e');
           if (rescueUrl != null && !rescueDone) {
             // Primary failed: trigger rescue immediately without waiting for delay
             startRescue();
@@ -364,10 +370,25 @@ class BtrIdmDownloader {
         throw HttpException('HTTP $statusCode', uri: Uri.parse(url));
       }
 
+      // If status is 200 OK for a non-zero start offset, the CDN does not support Range requests!
+      // This MUST be rejected because returning bytes from 0 for chunk > 0 corrupts the video stream!
+      if (statusCode == HttpStatus.ok && chunk.start != 0) {
+        throw HttpException(
+          'CDN returned 200 OK for non-zero range ${chunk.start}-${chunk.end}',
+          uri: Uri.parse(url),
+        );
+      }
+
       final int? totalLength;
       if (statusCode == HttpStatus.partialContent) {
         final contentRangeHeader = response.headers.value(HttpHeaders.contentRangeHeader);
         final parsedRange = BtrRangeUtils.parseContentRange(contentRangeHeader);
+        if (parsedRange != null && parsedRange.start != null && parsedRange.start != chunk.start) {
+          throw HttpException(
+            'Content-Range start mismatch: expected ${chunk.start}, got ${parsedRange.start}',
+            uri: Uri.parse(url),
+          );
+        }
         totalLength = parsedRange?.total;
       } else {
         totalLength = response.contentLength > 0 ? response.contentLength : null;
@@ -387,13 +408,28 @@ class BtrIdmDownloader {
         }
       }
 
+      // CRITICAL: Verify that the full chunk was received!
+      if (received < chunk.length) {
+        throw SocketException(
+          'Incomplete chunk #${chunk.index}: expected ${chunk.length} bytes, received $received bytes from $url',
+        );
+      }
+
       final elapsedMs = max(1, DateTime.now().millisecondsSinceEpoch - startedAt);
       final bps = received * 1000.0 / elapsedMs;
       resolver.recordSuccess(url, bps);
 
       final resultBytes = bytesBuilder.takeBytes();
+      final finalBytes = resultBytes.length == chunk.length
+          ? resultBytes
+          : resultBytes.sublist(0, chunk.length);
+
+      final host = Uri.parse(url).host;
+      final speedMBps = (bps / (1024 * 1024)).toStringAsFixed(2);
+      print('[BTR Chunk] #${chunk.index} (${chunk.start}-${chunk.end}, ${finalBytes.length}B) OK in ${elapsedMs}ms ($speedMBps MB/s) from $host');
+
       return BtrChunkResult(
-        bytes: resultBytes,
+        bytes: finalBytes,
         totalLength: totalLength,
         url: url,
       );

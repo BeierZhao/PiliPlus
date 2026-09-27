@@ -746,7 +746,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
 
     final player = await Player.create(
       configuration: PlayerConfiguration(
-        logLevel: kDebugMode ? .warn : .error,
+        logLevel: .warn,
         options: opt,
       ),
     );
@@ -757,10 +757,11 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       player,
       configuration: VideoControllerConfiguration(
         enableHardwareAcceleration: hwdec != null,
-        androidAttachSurfaceAfterVideoParameters: false,
+        androidAttachSurfaceAfterVideoParameters: true,
         hwdec: hwdec,
       ),
     );
+    print('[BTR Player] VideoController created: hwdec=$hwdec, enableHA=${hwdec != null}, attachAfterParams=true');
 
     player.setMediaHeader(userAgent: BrowserUa.pc, referer: HttpString.baseUrl);
 
@@ -981,32 +982,35 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
           _updatePlaybackState();
         }
       }),
-      if (kDebugMode)
-        stream.log.listen(((PlayerLog log) {
-          if (log.level == 'error' || log.level == 'fatal') {
+      stream.log.listen(((PlayerLog log) {
+        if (log.level == 'error' || log.level == 'fatal') {
+          print('[MPV] [${log.level.toUpperCase()}] ${log.prefix}: ${log.text}');
+          if (kDebugMode) {
             Utils.reportError(
               '${log.level}: ${log.prefix}: ${log.text}\n${player.state.playlist}',
               null,
             );
-          } else {
-            debugPrint(log.toString());
           }
-        })),
+        } else if (log.level == 'warn') {
+          print('[MPV] [WARN] ${log.prefix}: ${log.text}');
+        }
+      })),
       stream.error.listen((String event) {
+        print('[MPV Stream Error] $event');
         if (dataSource is FileSource &&
             event.startsWith("Failed to open file")) {
           return;
         }
         if (isLive) {
           if (event.startsWith('tcp: ffurl_read returned ') ||
-              event.startsWith("Failed to open https://") ||
-              event.startsWith("Can not open external file https://")) {
+              event.contains("Failed to open ") ||
+              event.startsWith("Can not open external file ")) {
             Timer(const Duration(milliseconds: 3000), refreshPlayer);
           }
           return;
         }
-        if (event.startsWith("Failed to open https://") ||
-            event.startsWith("Can not open external file https://") ||
+        if (event.contains("Failed to open ") ||
+            event.startsWith("Can not open external file ") ||
             //tcp: ffurl_read returned 0xdfb9b0bb
             //tcp: ffurl_read returned 0xffffff99
             event.startsWith('tcp: ffurl_read returned ')) {
