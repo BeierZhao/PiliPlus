@@ -441,7 +441,7 @@ class BtrIdmDownloader {
 
     try {
       return await completer.future.timeout(
-        const Duration(milliseconds: 3000),
+        Duration(milliseconds: max(config.attemptTimeoutMs, 10000)),
         onTimeout: () {
           probeCancel.cancel();
           throw const SocketException('Metadata probe timed out');

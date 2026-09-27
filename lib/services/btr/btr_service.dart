@@ -171,7 +171,8 @@ class BtrService {
         return {'success': false, 'error': '无法解析该视频的 CID'};
       }
 
-      final playReq = await client.getUrl(Uri.parse('https://api.bilibili.com/x/player/playurl?bvid=$bvid&cid=$cid&qn=64&type=mp4&platform=html5'));
+      // Request DASH format (fnval=4048) - matching exact PiliPlus player flow
+      final playReq = await client.getUrl(Uri.parse('https://api.bilibili.com/x/player/playurl?bvid=$bvid&cid=$cid&qn=80&fnval=4048'));
       playReq.headers.set('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
       playReq.headers.set('Referer', 'https://www.bilibili.com/video/$bvid');
 
@@ -179,11 +180,63 @@ class BtrService {
       final playBody = await playResp.transform(utf8.decoder).join();
       final playJson = jsonDecode(playBody);
 
-      if (playJson['code'] != 0 || playJson['data']['durl'] == null) {
+      if (playJson['code'] != 0) {
         return {'success': false, 'error': 'B站 Playurl API 报错: ${playJson['message']}'};
       }
 
-      final durl = playJson['data']['durl'][0];
+      final data = playJson['data'];
+      final dash = data?['dash'];
+
+      if (dash != null) {
+        final videoList = dash['video'] as List;
+        final audioList = dash['audio'] as List?;
+
+        final videoItem = videoList.first;
+        final audioItem = (audioList != null && audioList.isNotEmpty) ? audioList.first : null;
+
+        final rawVideoUrl = videoItem['baseUrl'] as String;
+        final videoBackups = (videoItem['backupUrl'] as List?)?.cast<String>() ?? [];
+
+        final rawAudioUrl = audioItem != null ? (audioItem['baseUrl'] as String) : '';
+        final audioBackups = audioItem != null ? ((audioItem['backupUrl'] as List?)?.cast<String>() ?? []) : <String>[];
+
+        final videoStreamUrl = wrapUrl(
+          originalUrl: rawVideoUrl,
+          backupUrls: videoBackups,
+          isAudio: false,
+        );
+
+        final audioStreamUrl = rawAudioUrl.isNotEmpty
+            ? wrapUrl(
+                originalUrl: rawAudioUrl,
+                backupUrls: audioBackups,
+                isAudio: true,
+              )
+            : '';
+
+        final edlString = 'edl://!no_chapters;%${videoStreamUrl.length}%$videoStreamUrl;!new_stream;!no_chapters;%${audioStreamUrl.length}%$audioStreamUrl';
+
+        return {
+          'success': true,
+          'bvid': bvid,
+          'title': title,
+          'cid': cid,
+          'isDash': true,
+          'streamUrl': videoStreamUrl,
+          'videoStreamUrl': videoStreamUrl,
+          'audioStreamUrl': audioStreamUrl,
+          'edlString': edlString,
+          'rawVideoUrl': rawVideoUrl,
+          'rawAudioUrl': rawAudioUrl,
+        };
+      }
+
+      // Legacy fallback
+      final durl = data?['durl']?[0];
+      if (durl == null) {
+        return {'success': false, 'error': '未找到有效的播放地址'};
+      }
+
       final videoUrl = durl['url'] as String;
       final backupUrls = (durl['backup_url'] as List?)?.cast<String>() ?? [];
 
@@ -198,7 +251,11 @@ class BtrService {
         'bvid': bvid,
         'title': title,
         'cid': cid,
+        'isDash': false,
         'streamUrl': streamUrl,
+        'videoStreamUrl': streamUrl,
+        'audioStreamUrl': '',
+        'edlString': streamUrl,
         'originalUrl': videoUrl,
       };
     } catch (e) {
