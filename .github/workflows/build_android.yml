@@ -1,0 +1,68 @@
+name: Build Android APK (BTR)
+
+on:
+  push:
+    branches:
+      - feat/btr-integration
+  workflow_dispatch:
+
+jobs:
+  android:
+    name: Build Android arm64-v8a APK
+    runs-on: ubuntu-latest
+    permissions: write-all
+
+    steps:
+      - name: 代码迁出
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 构建Java环境
+        uses: actions/setup-java@v4
+        with:
+          distribution: "zulu"
+          java-version: "17"
+          cache: "gradle"
+          cache-dependency-path: |
+            android/*.gradle*
+            android/**/gradle-wrapper.properties
+
+      - name: 安装Flutter
+        uses: subosito/flutter-action@v2
+        id: flutter-action
+        with:
+          channel: stable
+          flutter-version-file: pubspec.yaml
+          cache: true
+
+      - name: Apply Patch
+        shell: pwsh
+        run: lib/scripts/patch.ps1 android
+
+      - name: Set and Extract version
+        shell: pwsh
+        run: lib/scripts/build.ps1 android
+
+      - name: Flutter Build Release Apk
+        run: flutter build apk --release --split-per-abi --dart-define-from-file=pili_release.json --no-pub
+
+      - name: Rename APK
+        shell: bash
+        run: |
+          for file in build/app/outputs/flutter-apk/app-*-release.apk; do
+            abi=$(echo "$file" | sed -E 's|.*app-(.*)-release\.apk|\1|')
+            mv "$file" "PiliPlus_android_${{ env.version }}_${abi}.apk"
+          done
+
+      - name: Upload arm64-v8a APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Android_arm64-v8a
+          path: PiliPlus_android_*_arm64-v8a.apk
+
+      - name: Upload all ABIs
+        uses: actions/upload-artifact@v4
+        with:
+          name: Android_all_APKs
+          path: PiliPlus_android_*.apk
