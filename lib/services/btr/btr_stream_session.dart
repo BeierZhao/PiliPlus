@@ -198,13 +198,18 @@ class BtrStreamSession {
       return;
     }
 
-    final int concurrency = config.effectiveConcurrency;
-    // Chunk size: between 64KB and 256KB for instant playback startup
-    final int chunkSize = config.minChunkBytes.clamp(64 * 1024, 256 * 1024);
-    final chunks = BtrRangeUtils.splitRange(start, end, concurrency * 4, minChunkBytes: chunkSize);
+    final int concurrency = isAudio ? min(3, config.effectiveConcurrency) : config.effectiveConcurrency;
+    // Chunk size: 256KB for video, 128KB for audio. Initial chunk is 128KB for instant first-byte delivery
+    final int chunkSize = isAudio ? 128 * 1024 : 256 * 1024;
+    final chunks = BtrRangeUtils.splitIntoStreamingChunks(
+      start,
+      end,
+      chunkSize: chunkSize,
+      firstChunkSize: 128 * 1024,
+    );
 
-    // Sliding window buffer: max concurrency * 2 ahead (prevent exhausting semaphore)
-    final maxWindowChunks = max(concurrency, min(concurrency * 2, (config.maxBufferBytes / chunkSize).floor()));
+    // Sliding window buffer: max concurrency * 2 ahead (prevent exhausting memory or network)
+    final maxWindowChunks = isAudio ? 4 : max(concurrency, min(concurrency * 2, 16));
     final activeDownloads = <int, Future<BtrChunkResult>>{};
 
     int nextToDownload = 0;
@@ -221,6 +226,7 @@ class BtrStreamSession {
           candidateUrls: candidateUrls,
           cancelToken: cancelToken,
           isAudio: isAudio,
+          priority: chunkIndex == 0,
         );
 
         // Prevent unhandled async exceptions if session is cancelled while futures are pending

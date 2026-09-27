@@ -108,6 +108,30 @@ abstract final class BtrRangeUtils {
     return pieces;
   }
 
+  /// Split a contiguous byte range [start, end] into fixed-size streaming chunks
+  /// Chunk 0 is optimized to be small (e.g. 128KB) for ultra-low latency playback startup
+  static List<BtrChunk> splitIntoStreamingChunks(
+    int start,
+    int end, {
+    int chunkSize = 256 * 1024,
+    int firstChunkSize = 128 * 1024,
+  }) {
+    final length = end - start + 1;
+    if (length <= 0) return const [];
+
+    final chunks = <BtrChunk>[];
+    var current = start;
+    var index = 0;
+
+    while (current <= end) {
+      final currentChunkSize = (index == 0 && length > firstChunkSize) ? firstChunkSize : chunkSize;
+      final chunkEnd = (current + currentChunkSize - 1).clamp(current, end);
+      chunks.add(BtrChunk(index: index++, start: current, end: chunkEnd));
+      current = chunkEnd + 1;
+    }
+    return chunks;
+  }
+
   /// Check whether the URL points to a standard Bilibili video/audio stream
   static bool isBilibiliMediaUrl(String value) {
     try {

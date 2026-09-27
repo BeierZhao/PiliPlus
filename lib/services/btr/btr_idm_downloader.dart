@@ -52,7 +52,7 @@ class BtrSemaphore {
     _drain();
   }
 
-  Future<void> acquire([BtrCancelToken? cancelToken]) async {
+  Future<void> acquire([BtrCancelToken? cancelToken, bool priority = false]) async {
     if (cancelToken?.isCancelled == true) {
       throw const SocketException('Task cancelled');
     }
@@ -63,7 +63,11 @@ class BtrSemaphore {
     }
 
     final completer = Completer<void>();
-    _queue.add(completer);
+    if (priority) {
+      _queue.insert(0, completer);
+    } else {
+      _queue.add(completer);
+    }
 
     void onCancel() {
       if (_queue.remove(completer)) {
@@ -113,13 +117,15 @@ class BtrChunkResult {
 class BtrIdmDownloader {
   final BtrConfig config;
   final BtrCdnResolver resolver;
-  final BtrSemaphore semaphore;
+  final BtrSemaphore videoSemaphore;
+  final BtrSemaphore audioSemaphore;
   late final HttpClient _httpClient;
 
   BtrIdmDownloader({
     required this.config,
     required this.resolver,
-  }) : semaphore = BtrSemaphore(config.effectiveConcurrency) {
+  })  : videoSemaphore = BtrSemaphore(config.effectiveConcurrency),
+        audioSemaphore = BtrSemaphore(3) {
     _httpClient = HttpClient()
       ..connectionTimeout = Duration(milliseconds: config.firstByteTimeoutMs)
       ..idleTimeout = const Duration(seconds: 15)
@@ -127,8 +133,13 @@ class BtrIdmDownloader {
       ..badCertificateCallback = (cert, host, port) => true;
   }
 
+  BtrSemaphore get semaphore => videoSemaphore;
+
+  BtrSemaphore semaphoreFor({required bool isAudio}) => isAudio ? audioSemaphore : videoSemaphore;
+
   void updateConcurrency(int concurrency) {
-    semaphore.setLimit(concurrency);
+    videoSemaphore.setLimit(concurrency);
+    audioSemaphore.setLimit(min(4, max(2, concurrency ~/ 2)));
     BtrStats.instance.setMaxConcurrency(concurrency);
   }
 
@@ -138,6 +149,7 @@ class BtrIdmDownloader {
     required List<String> candidateUrls,
     required BtrCancelToken cancelToken,
     bool isAudio = false,
+    bool priority = false,
   }) async {
     if (cancelToken.isCancelled) {
       throw const SocketException('Task cancelled');
@@ -162,7 +174,9 @@ class BtrIdmDownloader {
           : candidateUrls.where((u) => !triedUrls.contains(u)).toList();
       if (pool.isEmpty) break;
 
-      final primaryUrl = pool[chunk.index % pool.length];
+      final primaryUrl = (chunk.index == 0 && attempt == 0)
+          ? (pool.contains(candidateUrls.first) ? candidateUrls.first : pool.first)
+          : pool[chunk.index % pool.length];
       triedUrls.add(primaryUrl);
 
       final rescuePool = pool.where((u) => u != primaryUrl).toList();
@@ -211,6 +225,8 @@ class BtrIdmDownloader {
               chunk: chunk,
               url: rescueUrl,
               cancelToken: rescueCancel,
+              isAudio: isAudio,
+              priority: priority,
             );
             if (!chunkCompleter.isCompleted) {
               primaryCancel.cancel();
@@ -234,6 +250,8 @@ class BtrIdmDownloader {
             chunk: chunk,
             url: primaryUrl,
             cancelToken: primaryCancel,
+            isAudio: isAudio,
+            priority: priority,
           );
           primaryDone = true;
           hedgeTimer?.cancel();
@@ -288,13 +306,16 @@ class BtrIdmDownloader {
     required BtrChunk chunk,
     required String url,
     required BtrCancelToken cancelToken,
+    bool isAudio = false,
+    bool priority = false,
     void Function(int receivedBytes)? onProgress,
   }) async {
     if (cancelToken.isCancelled) {
       throw const SocketException('Task cancelled');
     }
 
-    await semaphore.acquire(cancelToken);
+    final sem = semaphoreFor(isAudio: isAudio);
+    await sem.acquire(cancelToken, priority);
     BtrStats.instance.onConnectionStarted();
 
     final startedAt = DateTime.now().millisecondsSinceEpoch;
@@ -388,7 +409,7 @@ class BtrIdmDownloader {
     } finally {
       stallTimer?.cancel();
       cancelToken.removeListener(cancelHttp);
-      semaphore.release();
+      sem.release();
       BtrStats.instance.onConnectionClosed();
     }
   }
@@ -408,26 +429,6 @@ class BtrIdmDownloader {
     cancelToken.addListener(abort);
 
     try {
-      // 1. Try HEAD request first (extremely fast, zero bandwidth)
-      request = await _httpClient.openUrl('HEAD', Uri.parse(url));
-      request.headers.set(
-        'User-Agent',
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      );
-      request.headers.set('Referer', 'https://www.bilibili.com/');
-      response = await request.close().timeout(const Duration(milliseconds: 2000));
-      if (response.statusCode == HttpStatus.ok && response.contentLength > 0) {
-        return response.contentLength;
-      }
-    } catch (_) {}
-
-    if (cancelToken.isCancelled) {
-      cancelToken.removeListener(abort);
-      return null;
-    }
-
-    // 2. Fallback to GET range=0-1
-    try {
       request = await _httpClient.getUrl(Uri.parse(url));
       request.headers.set(
         'User-Agent',
@@ -439,13 +440,16 @@ class BtrIdmDownloader {
       if (response.statusCode == HttpStatus.partialContent) {
         final contentRange = response.headers.value(HttpHeaders.contentRangeHeader);
         final parsed = BtrRangeUtils.parseContentRange(contentRange);
+        await response.drain<void>().catchError((_) {});
         if (parsed?.total != null && parsed!.total! > 0) {
           return parsed.total;
         }
       } else if (response.statusCode == HttpStatus.ok && response.contentLength > 0) {
+        await response.drain<void>().catchError((_) {});
         return response.contentLength;
       }
-    } catch (_) {} finally {
+    } catch (_) {
+    } finally {
       cancelToken.removeListener(abort);
     }
     return null;
