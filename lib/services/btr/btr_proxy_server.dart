@@ -118,7 +118,17 @@ class BtrProxyServer {
         'activeConnections': snap.activeConnections,
         'rescuedChunks': snap.rescuedChunks,
         'totalBytes': snap.totalBytes,
+        'currentPrimaryHost': snap.currentPrimaryHost,
         'nodes': snap.nodes.map((n) => {'host': n.host, 'state': n.state, 'speedBps': n.speedBps}).toList(),
+        'activeThreads': snap.activeThreads.map((t) => {
+          'threadId': t.threadId,
+          'host': t.host,
+          'isAudio': t.isAudio,
+          'chunkIndex': t.chunkIndex,
+          'speedFormatted': t.speedFormatted,
+          'speedBps': t.speedBps,
+          'progress': t.progress,
+        }).toList(),
       }));
       await request.response.close();
       return;

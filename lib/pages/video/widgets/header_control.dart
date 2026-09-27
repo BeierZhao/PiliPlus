@@ -34,10 +34,12 @@ import 'package:PiliPlus/pages/video/introduction/pgc/controller.dart';
 import 'package:PiliPlus/pages/video/introduction/ugc/controller.dart';
 import 'package:PiliPlus/pages/video/introduction/ugc/widgets/action_item.dart';
 import 'package:PiliPlus/pages/video/introduction/ugc/widgets/menu_row.dart';
+import 'package:PiliPlus/pages/video/widgets/btr_status_dialog.dart';
 import 'package:PiliPlus/pages/video/widgets/header_mixin.dart';
 import 'package:PiliPlus/plugin/pl_player/controller.dart';
 import 'package:PiliPlus/plugin/pl_player/models/data_source.dart';
 import 'package:PiliPlus/plugin/pl_player/models/play_repeat.dart';
+import 'package:PiliPlus/services/btr/btr_service.dart';
 import 'package:PiliPlus/services/shutdown_timer_service.dart'
     show shutdownTimerService, ShutdownPanel;
 import 'package:PiliPlus/utils/accounts.dart';
@@ -508,7 +510,22 @@ class HeaderControlState extends State<HeaderControl>
                         ),
                       ),
                     ),
-                if (!isFileSource)
+                if (!isFileSource) ...[
+                  ListTile(
+                    dense: true,
+                    title: const Text('查看多线程加速', style: titleStyle),
+                    leading: const Icon(Icons.speed, size: 20),
+                    subtitle: Text(
+                      BtrService.instance.isEnabled
+                          ? '多线程加速已启用 (点击查看实时状态)'
+                          : '未启用多线程加速',
+                      style: subTitleStyle,
+                    ),
+                    onTap: () {
+                      Get.back();
+                      BtrStatusDialog.show(context);
+                    },
+                  ),
                   ListTile(
                     dense: true,
                     title: const Text('CDN 设置', style: titleStyle),
@@ -533,6 +550,7 @@ class HeaderControlState extends State<HeaderControl>
                       }
                     },
                   ),
+                ],
                 SingleChildScrollView(
                   scrollDirection: Axis.horizontal,
                   padding: const EdgeInsets.symmetric(horizontal: 16),

@@ -322,7 +322,14 @@ class BtrIdmDownloader {
 
     final sem = semaphoreFor(isAudio: isAudio);
     await sem.acquire(cancelToken, priority);
-    BtrStats.instance.onConnectionStarted();
+    final host = Uri.tryParse(url)?.host ?? '';
+    final threadId = BtrStats.instance.onThreadStarted(
+      host: host,
+      isAudio: isAudio,
+      chunkIndex: chunk.index,
+      start: chunk.start,
+      end: chunk.end,
+    );
 
     final startedAt = DateTime.now().millisecondsSinceEpoch;
     HttpClientRequest? request;
@@ -399,7 +406,7 @@ class BtrIdmDownloader {
         bytesBuilder.add(data);
         received += data.length;
         onProgress?.call(received);
-        BtrStats.instance.onBytesReceived(data.length);
+        BtrStats.instance.onThreadBytesReceived(threadId, data.length);
         if (received >= chunk.length) {
           try {
             request.abort();
@@ -424,7 +431,6 @@ class BtrIdmDownloader {
           ? resultBytes
           : resultBytes.sublist(0, chunk.length);
 
-      final host = Uri.parse(url).host;
       final speedMBps = (bps / (1024 * 1024)).toStringAsFixed(2);
       print('[BTR Chunk] #${chunk.index} (${chunk.start}-${chunk.end}, ${finalBytes.length}B) OK in ${elapsedMs}ms ($speedMBps MB/s) from $host');
 
@@ -446,7 +452,7 @@ class BtrIdmDownloader {
       stallTimer?.cancel();
       cancelToken.removeListener(cancelHttp);
       sem.release();
-      BtrStats.instance.onConnectionClosed();
+      BtrStats.instance.onThreadClosed(threadId);
     }
   }
 

@@ -7,6 +7,7 @@ import 'btr_cdn_resolver.dart';
 import 'btr_config.dart';
 import 'btr_idm_downloader.dart';
 import 'btr_range.dart';
+import 'btr_stats.dart';
 
 class BtrStreamSession {
   final String sessionId;
@@ -40,13 +41,25 @@ class BtrStreamSession {
   bool get isClosed => _isClosed;
 
   List<String> get candidateUrls {
-    return _resolvedCandidateUrls ??= resolver.resolveCandidateUrls(
-      primaryUrl: originalUrl,
-      backupUrls: backupUrls,
-      mode: config.mode,
-      customHosts: config.customHosts,
-      preferredHost: preferredHost,
-    );
+    if (_resolvedCandidateUrls == null) {
+      _resolvedCandidateUrls = resolver.resolveCandidateUrls(
+        primaryUrl: originalUrl,
+        backupUrls: backupUrls,
+        mode: config.mode,
+        customHosts: config.customHosts,
+        preferredHost: preferredHost,
+      );
+      final primaryHost = Uri.tryParse(originalUrl)?.host;
+      final candHosts = _resolvedCandidateUrls!
+          .map((u) => Uri.tryParse(u)?.host ?? '')
+          .where((h) => h.isNotEmpty)
+          .toList();
+      BtrStats.instance.updateSessionInfo(
+        primaryHost: primaryHost,
+        candidateHosts: candHosts,
+      );
+    }
+    return _resolvedCandidateUrls!;
   }
 
   Future<int>? _contentLengthFuture;

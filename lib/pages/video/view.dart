@@ -43,6 +43,7 @@ import 'package:PiliPlus/pages/video/related/view.dart';
 import 'package:PiliPlus/pages/video/reply/controller.dart';
 import 'package:PiliPlus/pages/video/reply/view.dart';
 import 'package:PiliPlus/pages/video/view_point/view.dart';
+import 'package:PiliPlus/pages/video/widgets/btr_status_dialog.dart';
 import 'package:PiliPlus/pages/video/widgets/header_control.dart';
 import 'package:PiliPlus/pages/video/widgets/intro_layout.dart';
 import 'package:PiliPlus/pages/video/widgets/player_focus.dart';
@@ -1165,11 +1166,16 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
           onTap: () => videoDetailController.showNoteList(context),
           child: const Text('查看笔记'),
         ),
-      if (!videoDetailController.isFileSource)
+      if (!videoDetailController.isFileSource) ...[
         PopupMenuItem(
           onTap: () => videoDetailController.onDownload(this.context),
           child: const Text('缓存视频'),
         ),
+        PopupMenuItem(
+          onTap: () => BtrStatusDialog.show(context),
+          child: const Text('查看多线程加速'),
+        ),
+      ],
       if (videoDetailController.cover.value.isNotEmpty)
         PopupMenuItem(
           onTap: () =>
