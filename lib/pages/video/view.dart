@@ -1172,7 +1172,13 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
           child: const Text('缓存视频'),
         ),
         PopupMenuItem(
-          onTap: () => BtrStatusDialog.show(context),
+          onTap: () {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (this.context.mounted) {
+                BtrStatusDialog.show(this.context);
+              }
+            });
+          },
           child: const Text('查看多线程加速'),
         ),
       ],

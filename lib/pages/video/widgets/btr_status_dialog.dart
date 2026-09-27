@@ -6,33 +6,24 @@ import 'package:PiliPlus/services/btr/btr_service.dart';
 import 'package:PiliPlus/services/btr/btr_stats.dart';
 
 class BtrStatusDialog {
-  static const String tag = 'btr_status_floating';
-  static bool _isShowing = false;
-  static bool get isShowing => _isShowing;
-
   static void show(BuildContext context) {
-    if (_isShowing) {
-      dismiss();
-      return;
-    }
-    _isShowing = true;
-    SmartDialog.show(
-      tag: tag,
-      alignment: Alignment.center,
-      usePenetrate: true,
-      maskColor: Colors.transparent,
-      clickMaskDismiss: false,
-      onDismiss: () {
-        _isShowing = false;
-      },
-      builder: (context) => const BtrStatusFloatingView(),
+    showDialog(
+      context: context,
+      barrierColor: Colors.black38,
+      barrierDismissible: true,
+      builder: (dialogContext) => const Dialog(
+        backgroundColor: Colors.transparent,
+        shadowColor: Colors.transparent,
+        surfaceTintColor: Colors.transparent,
+        insetPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+        child: BtrStatusFloatingView(),
+      ),
     );
   }
 
-  static void dismiss() {
-    if (_isShowing) {
-      SmartDialog.dismiss(tag: tag);
-      _isShowing = false;
+  static void dismiss(BuildContext context) {
+    if (Navigator.of(context, rootNavigator: true).canPop()) {
+      Navigator.of(context, rootNavigator: true).pop();
     }
   }
 }
@@ -184,7 +175,7 @@ class _BtrStatusFloatingViewState extends State<BtrStatusFloatingView> {
               padding: EdgeInsets.zero,
               constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
               icon: const Icon(Icons.close),
-              onPressed: BtrStatusDialog.dismiss,
+              onPressed: () => BtrStatusDialog.dismiss(context),
             ),
           ],
         ),
@@ -301,7 +292,7 @@ class _BtrStatusFloatingViewState extends State<BtrStatusFloatingView> {
               padding: EdgeInsets.zero,
               constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
               icon: const Icon(Icons.close),
-              onPressed: BtrStatusDialog.dismiss,
+              onPressed: () => BtrStatusDialog.dismiss(context),
             ),
           ],
         ),
