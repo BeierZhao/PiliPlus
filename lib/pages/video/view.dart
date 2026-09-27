@@ -1173,8 +1173,13 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
         ),
         PopupMenuItem(
           onTap: () {
+            final pageContext = this.context;
             WidgetsBinding.instance.addPostFrameCallback((_) {
-              BtrStatusDialog.show();
+              if (pageContext.mounted) {
+                BtrStatusDialog.show(pageContext);
+              } else {
+                BtrStatusDialog.show();
+              }
             });
           },
           child: const Text('查看多线程加速'),

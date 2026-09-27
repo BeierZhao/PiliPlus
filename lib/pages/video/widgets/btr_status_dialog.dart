@@ -8,12 +8,15 @@ import 'package:PiliPlus/services/btr/btr_stats.dart';
 
 class BtrStatusDialog {
   static void show([BuildContext? context]) {
-    final ctx = context ?? Get.context;
+    final ctx = (context != null && context.mounted)
+        ? context
+        : (Get.overlayContext ?? Get.context);
     if (ctx == null) return;
     showDialog(
       context: ctx,
       barrierColor: Colors.black38,
       barrierDismissible: true,
+      barrierLabel: '关闭',
       builder: (dialogContext) => const Dialog(
         backgroundColor: Colors.transparent,
         shadowColor: Colors.transparent,
@@ -24,9 +27,12 @@ class BtrStatusDialog {
     );
   }
 
-  static void dismiss(BuildContext context) {
-    if (Navigator.of(context, rootNavigator: true).canPop()) {
-      Navigator.of(context, rootNavigator: true).pop();
+  static void dismiss([BuildContext? context]) {
+    final ctx = (context != null && context.mounted)
+        ? context
+        : (Get.overlayContext ?? Get.context);
+    if (ctx != null && Navigator.of(ctx, rootNavigator: true).canPop()) {
+      Navigator.of(ctx, rootNavigator: true).pop();
     }
   }
 }

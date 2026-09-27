@@ -522,9 +522,14 @@ class HeaderControlState extends State<HeaderControl>
                       style: subTitleStyle,
                     ),
                     onTap: () {
+                      final pageContext = this.context;
                       Get.back();
                       WidgetsBinding.instance.addPostFrameCallback((_) {
-                        BtrStatusDialog.show();
+                        if (pageContext.mounted) {
+                          BtrStatusDialog.show(pageContext);
+                        } else {
+                          BtrStatusDialog.show();
+                        }
                       });
                     },
                   ),
