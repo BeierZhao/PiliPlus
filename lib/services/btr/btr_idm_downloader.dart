@@ -281,6 +281,7 @@ class BtrIdmDownloader {
 
     try {
       request = await _httpClient.getUrl(Uri.parse(url));
+      request.headers.set('Host', Uri.parse(url).host);
       request.headers.set('User-Agent', BrowserUa.platform);
       request.headers.set('Referer', 'https://www.bilibili.com/');
       request.headers.set('Range', 'bytes=${chunk.start}-${chunk.end}');

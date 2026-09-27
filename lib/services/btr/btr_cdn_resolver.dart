@@ -102,7 +102,7 @@ class BtrCdnResolver {
     if (BtrRangeUtils.normalizeCdnHost(host) != host) return null;
     try {
       final uri = Uri.parse(rawUrl);
-      return uri.replace(scheme: 'https', host: host, port: 443).toString();
+      return uri.replace(scheme: 'https', host: host).toString();
     } catch (_) {
       return null;
     }
