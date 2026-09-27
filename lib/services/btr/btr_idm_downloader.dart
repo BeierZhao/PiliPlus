@@ -352,7 +352,7 @@ class BtrIdmDownloader {
     final probeChunk = const BtrChunk(index: 0, start: 0, end: 1);
 
     Object? lastError;
-    for (final url in pool.take(3)) {
+    for (final url in pool) {
       if (cancelToken.isCancelled) throw const SocketException('Cancelled');
       try {
         final result = await _executeHttpRange(

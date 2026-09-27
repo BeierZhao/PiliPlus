@@ -148,22 +148,24 @@ class BtrCdnResolver {
 
     final result = <String>[];
 
-    // Priority 1: User-preferred CDN host if matched
-    if (preferredHost != null && preferredHost.isNotEmpty) {
-      final preferred = synthetic.where((u) => _hostOf(u) == preferredHost.toLowerCase());
-      result.addAll(preferred);
-    }
-
-    // Priority 2: Synthetic mirror URLs
-    for (final u in synthetic) {
-      if (!result.contains(u)) result.add(u);
-    }
-
-    // Priority 3: Original URLs
+    // Priority 1: Original signed URLs from Bilibili API
     for (final u in originals) {
       if (!isHostBanned(_hostOf(u)) && !result.contains(u)) {
         result.add(u);
       }
+    }
+
+    // Priority 2: User-preferred CDN host if matched
+    if (preferredHost != null && preferredHost.isNotEmpty) {
+      final preferred = synthetic.where((u) => _hostOf(u) == preferredHost.toLowerCase());
+      for (final u in preferred) {
+        if (!result.contains(u)) result.add(u);
+      }
+    }
+
+    // Priority 3: Synthetic mirror URLs (fallback)
+    for (final u in synthetic) {
+      if (!result.contains(u)) result.add(u);
     }
 
     if (result.isEmpty) {
