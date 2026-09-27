@@ -32,7 +32,10 @@ class BtrStreamSession {
     required this.resolver,
     required this.downloader,
     this.preferredHost,
-  });
+  }) {
+    // Eagerly pre-probe metadata in background right upon session creation
+    unawaited(ensureContentLength().catchError((_) => 0));
+  }
 
   bool get isClosed => _isClosed;
 
@@ -153,6 +156,10 @@ class BtrStreamSession {
         );
       }
 
+      // CRITICAL: Flush response headers immediately to client socket
+      // so MPV receives HTTP/1.1 206 Partial Content instantly and never times out!
+      await request.response.flush();
+
       // Stream data in sliding window chunks with backpressure
       await _streamRange(
         start: start,
@@ -192,8 +199,8 @@ class BtrStreamSession {
     }
 
     final int concurrency = config.effectiveConcurrency;
-    // Chunk size: between 128KB and 512KB for smooth streaming
-    final int chunkSize = config.minChunkBytes.clamp(128 * 1024, 512 * 1024);
+    // Chunk size: between 64KB and 256KB for instant playback startup
+    final int chunkSize = config.minChunkBytes.clamp(64 * 1024, 256 * 1024);
     final chunks = BtrRangeUtils.splitRange(start, end, concurrency * 4, minChunkBytes: chunkSize);
 
     // Sliding window buffer: max concurrency * 2 ahead (prevent exhausting semaphore)

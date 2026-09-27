@@ -123,7 +123,8 @@ class BtrIdmDownloader {
     _httpClient = HttpClient()
       ..connectionTimeout = Duration(milliseconds: config.firstByteTimeoutMs)
       ..idleTimeout = const Duration(seconds: 15)
-      ..maxConnectionsPerHost = 16;
+      ..maxConnectionsPerHost = 16
+      ..badCertificateCallback = (cert, host, port) => true;
   }
 
   void updateConcurrency(int concurrency) {
@@ -392,7 +393,65 @@ class BtrIdmDownloader {
     }
   }
 
-  /// Probe file metadata (Content-Length) by fetching a tiny range (0-0 or 0-1)
+  /// Fast single URL probe without taking worker semaphore slots
+  Future<int?> _probeSingleUrl(String url, BtrCancelToken cancelToken) async {
+    if (cancelToken.isCancelled) return null;
+    HttpClientRequest? request;
+    HttpClientResponse? response;
+
+    void abort() {
+      try {
+        request?.abort();
+      } catch (_) {}
+    }
+
+    cancelToken.addListener(abort);
+
+    try {
+      // 1. Try HEAD request first (extremely fast, zero bandwidth)
+      request = await _httpClient.openUrl('HEAD', Uri.parse(url));
+      request.headers.set(
+        'User-Agent',
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      );
+      request.headers.set('Referer', 'https://www.bilibili.com/');
+      response = await request.close().timeout(const Duration(milliseconds: 2000));
+      if (response.statusCode == HttpStatus.ok && response.contentLength > 0) {
+        return response.contentLength;
+      }
+    } catch (_) {}
+
+    if (cancelToken.isCancelled) {
+      cancelToken.removeListener(abort);
+      return null;
+    }
+
+    // 2. Fallback to GET range=0-1
+    try {
+      request = await _httpClient.getUrl(Uri.parse(url));
+      request.headers.set(
+        'User-Agent',
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      );
+      request.headers.set('Referer', 'https://www.bilibili.com/');
+      request.headers.set('Range', 'bytes=0-1');
+      response = await request.close().timeout(const Duration(milliseconds: 2500));
+      if (response.statusCode == HttpStatus.partialContent) {
+        final contentRange = response.headers.value(HttpHeaders.contentRangeHeader);
+        final parsed = BtrRangeUtils.parseContentRange(contentRange);
+        if (parsed?.total != null && parsed!.total! > 0) {
+          return parsed.total;
+        }
+      } else if (response.statusCode == HttpStatus.ok && response.contentLength > 0) {
+        return response.contentLength;
+      }
+    } catch (_) {} finally {
+      cancelToken.removeListener(abort);
+    }
+    return null;
+  }
+
+  /// Probe file metadata (Content-Length) by racing HEAD and lightweight GET range requests
   Future<({int totalLength, String workingUrl})> probeMetadata({
     required List<String> candidateUrls,
     required BtrCancelToken cancelToken,
@@ -400,7 +459,6 @@ class BtrIdmDownloader {
     if (candidateUrls.isEmpty) {
       throw ArgumentError('candidateUrls cannot be empty');
     }
-    final probeChunk = const BtrChunk(index: 0, start: 0, end: 1);
     final completer = Completer<({int totalLength, String workingUrl})>();
     final probeCancel = BtrCancelToken();
     cancelToken.addListener(probeCancel.cancel);
@@ -419,15 +477,11 @@ class BtrIdmDownloader {
       if (completer.isCompleted || probeCancel.isCancelled) break;
       unawaited(() async {
         try {
-          final result = await _executeHttpRange(
-            chunk: probeChunk,
-            url: url,
-            cancelToken: probeCancel,
-          );
-          if (result.totalLength != null && result.totalLength! > 0) {
+          final totalLen = await _probeSingleUrl(url, probeCancel);
+          if (totalLen != null && totalLen > 0) {
             if (!completer.isCompleted) {
-              probeCancel.cancel(); // Cancel other racing probes immediately to free semaphore slots
-              completer.complete((totalLength: result.totalLength!, workingUrl: url));
+              probeCancel.cancel(); // Cancel other racing probes immediately
+              completer.complete((totalLength: totalLen, workingUrl: url));
             }
           } else {
             checkError();
@@ -436,7 +490,7 @@ class BtrIdmDownloader {
           checkError();
         }
       }());
-      await Future.delayed(const Duration(milliseconds: 100));
+      await Future.delayed(const Duration(milliseconds: 60));
     }
 
     try {

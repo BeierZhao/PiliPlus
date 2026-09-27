@@ -42,6 +42,7 @@
         android:fullBackupContent="false"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
+        android:usesCleartextTraffic="true"
         tools:replace="android:allowBackup">
         <meta-data
             android:name="io.flutter.embedding.android.EnableImpeller"
