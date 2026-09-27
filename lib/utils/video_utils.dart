@@ -1,6 +1,7 @@
 import 'package:PiliPlus/models/common/video/cdn_type.dart';
 import 'package:PiliPlus/models/common/video/video_decode_type.dart';
 import 'package:PiliPlus/models_new/live/live_room_play_info/codec.dart';
+import 'package:PiliPlus/services/btr/btr_service.dart';
 import 'package:PiliPlus/utils/extension/iterable_ext.dart';
 import 'package:PiliPlus/utils/storage_pref.dart';
 import 'package:flutter/foundation.dart' show kDebugMode, debugPrint;
@@ -21,6 +22,28 @@ abstract final class VideoUtils {
   );
 
   static String getCdnUrl(
+    Iterable<String> urls, {
+    CDNService? defaultCDNService,
+    bool isAudio = false,
+  }) {
+    final originalResult = _computeCdnUrl(
+      urls,
+      defaultCDNService: defaultCDNService,
+      isAudio: isAudio,
+    );
+
+    if (BtrService.instance.isEnabled) {
+      return BtrService.instance.wrapUrl(
+        originalUrl: originalResult,
+        backupUrls: urls,
+        isAudio: isAudio,
+        preferredHost: (defaultCDNService ?? cdnService).host,
+      );
+    }
+    return originalResult;
+  }
+
+  static String _computeCdnUrl(
     Iterable<String> urls, {
     CDNService? defaultCDNService,
     bool isAudio = false,
