@@ -143,7 +143,11 @@ class BtrIdmDownloader {
       throw const SocketException('Task cancelled');
     }
 
-    final pool = candidateUrls.isNotEmpty ? candidateUrls : resolver.mainlandHosts;
+    if (candidateUrls.isEmpty) {
+      throw ArgumentError('candidateUrls cannot be empty');
+    }
+
+    final pool = candidateUrls;
     final primaryUrl = pool[chunk.index % pool.length];
     final rescuePool = resolver.rescueCandidates(pool).where((u) => u != primaryUrl).toList();
     final rescueUrl = rescuePool.isNotEmpty ? rescuePool.first : primaryUrl;
@@ -340,7 +344,10 @@ class BtrIdmDownloader {
     required List<String> candidateUrls,
     required BtrCancelToken cancelToken,
   }) async {
-    final pool = candidateUrls.isNotEmpty ? candidateUrls : resolver.mainlandHosts;
+    if (candidateUrls.isEmpty) {
+      throw ArgumentError('candidateUrls cannot be empty');
+    }
+    final pool = candidateUrls;
     final probeChunk = const BtrChunk(index: 0, start: 0, end: 1);
 
     Object? lastError;

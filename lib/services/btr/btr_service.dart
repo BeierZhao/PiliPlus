@@ -5,6 +5,7 @@ import 'package:PiliPlus/services/btr/btr_idm_downloader.dart';
 import 'package:PiliPlus/services/btr/btr_proxy_server.dart';
 import 'package:PiliPlus/services/btr/btr_range.dart';
 import 'package:PiliPlus/services/btr/btr_stats.dart';
+import 'package:PiliPlus/services/btr/btr_stream_session.dart';
 import 'package:PiliPlus/utils/storage_pref.dart';
 
 class BtrService {
