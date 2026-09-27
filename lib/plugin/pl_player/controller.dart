@@ -757,11 +757,11 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       player,
       configuration: VideoControllerConfiguration(
         enableHardwareAcceleration: hwdec != null,
-        androidAttachSurfaceAfterVideoParameters: true,
+        androidAttachSurfaceAfterVideoParameters: false,
         hwdec: hwdec,
       ),
     );
-    print('[BTR Player] VideoController created: hwdec=$hwdec, enableHA=${hwdec != null}, attachAfterParams=true');
+    print('[BTR Player] VideoController created: hwdec=$hwdec, enableHA=${hwdec != null}, attachAfterParams=false');
 
     player.setMediaHeader(userAgent: BrowserUa.pc, referer: HttpString.baseUrl);
 

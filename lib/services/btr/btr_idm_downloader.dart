@@ -400,7 +400,7 @@ class BtrIdmDownloader {
         received += data.length;
         onProgress?.call(received);
         BtrStats.instance.onBytesReceived(data.length);
-        if (statusCode == HttpStatus.ok && received >= chunk.length) {
+        if (received >= chunk.length) {
           try {
             request.abort();
           } catch (_) {}
